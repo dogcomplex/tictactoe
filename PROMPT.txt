@@ -1,0 +1,153 @@
+# SYSTEM PROMPT:
+You are tasked with analyzing mysterious text from an Oracle that represents the current state of a system or game. 
+
+## GOAL:
+Your ultimate goal is to submit a "solver(input)" Python function which correctly interprets the state and returns the appropriate label, in agreement with the hidden Oracle.  
+
+## TEST HELPERS:
+However, as this may be quite difficult to guess just from a few observations, you may also submit test functions of your own design and naming, which may take the observed input and return True or False.  Any other function with different inputs/outputs will be rejected.  These are meant to track smaller patterns you observe, in hopes of building up more complex understandings over time.   Use them to test your assumptions one at a time.  
+
+## OBSERVATIONS:
+After each round, random new observations (new inputs) will be made.  These will be randomly generated from the state space until one of them is incorrectly labelled by your solver(input) function.  This should incentivize getting your solver() as close to correct as quickly as possible.  In addition, each one of your test helper function outputs will be provided (True/False) with every observed input, giving you useful additional data to test smaller assumptions. 
+
+## DEFINITIONS:
+### Input State Space: 
+A string of length 9, consisting of the characters ["0", "1", "2"], where:
+"0" represents an empty space
+"1" represents a move by Player 1
+"2" represents a move by Player 2
+
+### Label Space: The valid labels are:
+"ok" – The game is still in progress
+"win1" – Player 1 has won
+"win2" – Player 2 has won
+"draw" – The game has ended in a draw
+"error" – The input is in an invalid impossible state.  For the purpose of this exercise, inputs given will never be invalid, but you may want to use this internally in your functions. 
+
+### Oracle Response:
+"True" or "False"
+
+### Test Helper Functions
+MUST return True or False only
+MUST take in an input state space string "input" ONLY
+You may have multiple test helper functions.
+You may use any name for each function.  Submissions with the same name will override the previous version.  Submit entire functions - not modifications.
+Each will be run with all seen observations so far and their outputs printed.
+
+### Turns:
+This process will continue, seeing observations until the oracle is correctly emulated perfectly by your solver() function.  If you are seeing this message, it means your current solver() function is incorrect.
+
+
+# STRATEGY ADVICE:
+
+Always RE-EVALUATE YOUR ASSUMPTIONS!  Only believe what your observations tell you, never assume you know what the system/game is just because it seems like it might fit an expected pattern.  Either it does or doesnt.  Analyze what parts of the problem need revising.
+
+# YOUR CURRENT FUNCTIONS:  (first turn)
+```
+
+
+# Check if Player 1 has won
+def test_win1(input):
+    wins = [
+        [0, 1, 2],  # Row 1
+        [3, 4, 5],  # Row 2
+        [6, 7, 8],  # Row 3
+        [0, 3, 6],  # Column 1
+        [1, 4, 7],  # Column 2
+        [2, 5, 8],  # Column 3
+        [0, 4, 8],  # Diagonal 1
+        [2, 4, 6],  # Diagonal 2
+    ]
+    return any(all(input[i] == '1' for i in win) for win in wins)
+
+# Check if Player 2 has won
+def test_win2(input):
+    wins = [
+        [0, 1, 2],  # Row 1
+        [3, 4, 5],  # Row 2
+        [6, 7, 8],  # Row 3
+        [0, 3, 6],  # Column 1
+        [1, 4, 7],  # Column 2
+        [2, 5, 8],  # Column 3
+        [0, 4, 8],  # Diagonal 1
+        [2, 4, 6],  # Diagonal 2
+    ]
+    return any(all(input[i] == '2' for i in win) for win in wins)
+
+# Check if the game is a draw
+def test_draw(input):
+    # The game is a draw if no empty spaces ('0') exist and neither player has won
+    return '0' not in input and not test_win1(input) and not test_win2(input)
+
+# Check if the game is still in progress
+def test_in_progress(input):
+    # Game is still in progress if there are empty spaces ('0') 
+    # and no winner has been determined yet
+    return '0' in input and not test_win1(input) and not test_win2(input)
+
+def test_valid_turn_sequence(input):
+    # Count the number of moves made by Player 1 and Player 2
+    count_1 = input.count('1')
+    count_2 = input.count('2')
+    
+    # Player 2 should never have more moves than Player 1, and the difference should be at most 1
+    if not (count_1 == count_2 or count_1 == count_2 + 1):
+        return False
+    
+    # Simulate the game to check for moves after a win
+    board = ['0'] * 9
+    current_player = '1'
+    for _ in range(count_1 + count_2):
+        # Find the next move
+        for i in range(9):
+            if board[i] != input[i]:
+                if input[i] != current_player:
+                    return False  # Invalid move sequence
+                board[i] = current_player
+                # Check for a win after this move
+                if test_win1(''.join(board)) if current_player == '1' else test_win2(''.join(board)):
+                    # Check if any additional moves were made after the win
+                    if board != list(input):
+                        return False  # Moves made after game has ended
+                    else:
+                        return True  # Valid sequence with win
+                current_player = '2' if current_player == '1' else '1'
+                break
+    return True  # Valid sequence without any premature wins
+
+def is_valid_win(input, player):
+    # Returns True if the player has a winning line and could have formed it on their last move
+    counts_p = input.count(player)
+    counts_opponent = input.count('1' if player == '2' else '2')
+    # Check if it's the player's turn based on move counts
+    if player == '1' and counts_p != counts_opponent + 1:
+        return False
+    if player == '2' and counts_p != counts_opponent:
+        return False
+    # Use the updated test_valid_turn_sequence to ensure no moves were made after the win
+    return test_valid_turn_sequence(input)
+
+def is_valid_win_1(input):
+    return is_valid_win(input, '1')
+
+def is_valid_win_2(input):
+    return is_valid_win(input, '2')
+
+def solver(input):
+    if test_win1(input):
+        return 'win1'
+    
+    if test_win2(input):
+        return 'win2'
+    
+    if test_draw(input):
+        return 'draw'
+    
+    return 'ok'  # Game is still in progress
+
+
+```
+# OBSERVATIONS:
+
+['102010012', 'solver(102010012)==ok', 'ORACLE(102010012,ok)==PASS', 'test_win1(102010012)==FALSE', 'test_win2(102010012)==FALSE', 'test_draw(102010012)==FALSE', 'test_in_progress(102010012)==TRUE', 'test_valid_turn_sequence(102010012)==FALSE', 'is_valid_win_1(102010012)==FALSE', 'is_valid_win_2(102010012)==FALSE']
+['100212001', 'solver(100212001)==win1', 'ORACLE(100212001,win1)==FAIL', 'test_win1(100212001)==TRUE', 'test_win2(100212001)==FALSE', 'test_draw(100212001)==FALSE', 'test_in_progress(100212001)==FALSE', 'test_valid_turn_sequence(100212001)==TRUE', 'is_valid_win_1(100212001)==TRUE', 'is_valid_win_2(100212001)==FALSE']

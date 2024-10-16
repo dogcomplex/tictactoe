@@ -1,0 +1,58 @@
+# SYSTEM PROMPT:
+You are tasked with analyzing mysterious text from an Oracle that represents the current state of a system or game. 
+
+## GOAL:
+Your ultimate goal is to submit a "solver(input)" Python function which correctly interprets the state and returns the appropriate label, in agreement with the hidden Oracle.  
+
+## TEST HELPERS:
+However, as this may be quite difficult to guess just from a few observations, you may also submit test functions of your own design and naming, which may take the observed input and return True or False.  Any other function with different inputs/outputs will be rejected.  These are meant to track smaller patterns you observe, in hopes of building up more complex understandings over time.   Use them to test your assumptions one at a time.  
+
+## OBSERVATIONS:
+After each round, random new observations (new inputs) will be made.  These will be randomly generated from the state space until one of them is incorrectly labelled by your solver(input) function.  This should incentivize getting your solver() as close to correct as quickly as possible.  In addition, each one of your test helper function outputs will be provided (True/False) with every observed input, giving you useful additional data to test smaller assumptions. 
+
+## DEFINITIONS:
+### Input State Space: 
+A string of length 9, consisting of the characters ["0", "1", "2"], where:
+"0" represents an empty space
+"1" represents a move by Player 1
+"2" represents a move by Player 2
+
+### Label Space: The valid labels are:
+"ok" – The game is still in progress
+"win1" – Player 1 has won
+"win2" – Player 2 has won
+"draw" – The game has ended in a draw
+
+### Oracle Response:
+"True" or "False"
+
+### Test Helper Functions
+MUST return True or False only
+MUST take in an input state space string "input" ONLY
+You may have multiple test helper functions.
+You may use any name for each function.  Submissions with the same name will override the previous version.  Submit entire functions - not modifications.
+Each will be run with all seen observations so far and their outputs printed.
+
+### Turns:
+This process will continue, seeing observations until the oracle is correctly emulated perfectly by your solver() function.  If you are seeing this message, it means your current solver() function is incorrect.
+
+
+# YOUR CURRENT FUNCTIONS:  (first turn)
+```
+def solver(input):
+  return 'ok'
+```
+# OBSERVATIONS:
+
+['input', 'solver()', 'ORACLE_RESPONSE']
+['010022011', 'ok', True]
+['112021201', 'ok', True]
+['000201012', 'ok', True]
+['211021000', 'ok', True]
+['000221100', 'ok', True]
+['002120121', 'ok', True]
+['101121022', 'ok', True]
+['121022211', 'ok', True]
+['112100202', 'ok', True]
+['112112022', 'ok', False]
+

@@ -1,0 +1,434 @@
+# SYSTEM PROMPT:
+You are tasked with analyzing mysterious text from an Oracle that represents the current state of a system or game. Your goal is to modify the given Python function to correctly interpret the state and return the appropriate label.  You are given a recent printout of pairs of observed inputs and outputs from your function, as well as the oracle's assessment whether the pairing is True or False (valid or invalid).  You are trying to recreate the Oracle from first principles and observations.
+
+## Input State Space: 
+A string of length 9, consisting of the characters ["0", "1", "2"], where:
+"0" represents an empty space
+"1" represents a move by Player 1
+"2" represents a move by Player 2
+
+## Label Space: The valid labels are:
+"ok" – The game is still in progress
+"win1" – Player 1 has won
+"win2" – Player 2 has won
+"draw" – The game has ended in a draw
+
+## Oracle Response:
+"True" or "False"
+
+## Task:
+Update your Python function to process the latest Oracle input and return the correct label. Any outputs that are not part of the label space will be ignored.  Please use the function header "solver(input)" and return an output from the label space.
+
+## STRATEGY:
+If you can not immediately discern the entire pattern of the system/game, then it may be a good idea to submit an intermediate function which guesses at the patterns it CAN discern so far, written into explainable code.  Then, you may assess if your submitted function is consistent with the observed reality.
+
+## History:
+
+### function 1:
+def solver(input):
+    return "ok"
+### observations 1 (input, label, response):
+('000000000', 'ok', True)
+('102010201', 'ok', False)
+('102010201', 'ok', False)
+
+### function 2:
+def solver(input):
+    # Define the winning patterns
+    winning_patterns = [
+        [0, 1, 2],  # Row 1
+        [3, 4, 5],  # Row 2
+        [6, 7, 8],  # Row 3
+        [0, 3, 6],  # Column 1
+        [1, 4, 7],  # Column 2
+        [2, 5, 8],  # Column 3
+        [0, 4, 8],  # Diagonal 1
+        [2, 4, 6]   # Diagonal 2
+    ]
+    
+    # Check for Player 1 win
+    for pattern in winning_patterns:
+        if input[pattern[0]] == input[pattern[1]] == input[pattern[2]] == '1':
+            return "win1"
+    
+    # Check for Player 2 win
+    for pattern in winning_patterns:
+        if input[pattern[0]] == input[pattern[1]] == input[pattern[2]] == '2':
+            return "win2"
+    
+    # Check if the game is still ongoing (if there are empty spaces)
+    if '0' in input:
+        return "ok"
+    
+    # If no winner and no empty spaces, it's a draw
+    return "draw"
+
+### observations 2 (input, label, response):
+('120122110', 'win1', True)
+('210021210', 'ok', True)
+('201012001', 'ok', True)
+('120012021', 'win1', False)
+('101102221', 'ok', True)
+('022121211', 'win2', False)
+('201122010', 'ok', True)
+('020112211', 'ok', True)
+('211221112', 'win2', False)
+('212011020', 'ok', True)
+('000010000', 'ok', True)
+('021022111', 'win1', True)
+('220100010', 'ok', True)
+('011021020', 'ok', True)
+('200221111', 'win1', True)
+('100201102', 'ok', True)
+('021112012', 'ok', True)
+('211121202', 'win2', False)
+('120000112', 'ok', True)
+('201112120', 'win1', False)
+('020010012', 'ok', True)
+('100121202', 'ok', True)
+('122101200', 'ok', True)
+('221020111', 'win1', True)
+('121100202', 'ok', True)
+('012221121', 'ok', True)
+('121201201', 'win1', True)
+('210001002', 'ok', True)
+('112102020', 'ok', True)
+('201102010', 'ok', True)
+('201201001', 'win1', True)
+('210021021', 'ok', True)
+('201011122', 'win1', False)
+('010100202', 'ok', True)
+('021020010', 'ok', True)
+('001210102', 'win1', False)
+('020102110', 'ok', True)
+('000122010', 'ok', True)
+('020211102', 'ok', True)
+('022211110', 'ok', True)
+('100100002', 'ok', True)
+('022111102', 'win1', True)
+('121221100', 'ok', True)
+('001110222', 'win2', True)
+('210112210', 'win1', True)
+('012201121', 'ok', True)
+('012001212', 'ok', True)
+('202111210', 'win1', True)
+('110001022', 'ok', True)
+('121210212', 'ok', True)
+('102000210', 'ok', True)
+('212112121', 'draw', True)
+('200002011', 'ok', True)
+('200110122', 'ok', True)
+('112201012', 'ok', True)
+('100211212', 'ok', True)
+('202001001', 'ok', True)
+('122021112', 'ok', True)
+('012112000', 'ok', True)
+('001121220', 'ok', True)
+('212000001', 'ok', True)
+('001212100', 'win1', False)
+('100012200', 'ok', True)
+('201002110', 'ok', True)
+('211020001', 'ok', True)
+('121211221', 'win1', True)
+('122112121', 'win1', True)
+('102221121', 'ok', True)
+('021102121', 'ok', True)
+('100120002', 'ok', True)
+('101012220', 'ok', True)
+('000020011', 'ok', True)
+('020000001', 'ok', True)
+('111221002', 'win1', True)
+('001112002', 'ok', True)
+('101202211', 'ok', True)
+('121002102', 'ok', True)
+('212211010', 'win1', True)
+('100010200', 'ok', True)
+('020021112', 'ok', True)
+('101212020', 'ok', True)
+('112000012', 'ok', True)
+('001012020', 'ok', True)
+('001201021', 'win1', True)
+('001011220', 'ok', True)
+('100002100', 'ok', True)
+('110022112', 'ok', True)
+('110022201', 'ok', True)
+('100210021', 'win1', False)
+('021000211', 'ok', True)
+('211112200', 'ok', True)
+('022111102', 'win1', True)
+('022111000', 'win1', True)
+('002001121', 'ok', True)
+('120001102', 'ok', True)
+('102101022', 'ok', True)
+('022000011', 'ok', True)
+('112010220', 'ok', True)
+('120121212', 'ok', True)
+('012122101', 'ok', True)
+
+
+### function 3:
+def solver(input):
+    # Define the winning patterns
+    winning_patterns = [
+        [0, 1, 2],  # Row 1
+        [3, 4, 5],  # Row 2
+        [6, 7, 8],  # Row 3
+        [0, 3, 6],  # Column 1
+        [1, 4, 7],  # Column 2
+        [2, 5, 8],  # Column 3
+        [0, 4, 8],  # Diagonal 1
+        [2, 4, 6]   # Diagonal 2
+    ]
+    
+    # Check for Player 1 win
+    for pattern in winning_patterns:
+        if input[pattern[0]] == input[pattern[1]] == input[pattern[2]] == '1':
+            return "win1"
+    
+    # Check for Player 2 win
+    for pattern in winning_patterns:
+        if input[pattern[0]] == input[pattern[1]] == input[pattern[2]] == '2':
+            return "win2"
+    
+    # Special edge case: if board is full but no winner, it's a draw
+    if '0' not in input:
+        return "draw"
+    
+    # If the game is still ongoing (empty spaces exist)
+    return "ok"
+
+### observations 3 (input, label, response):
+('210102012', 'ok', True)
+('112021021', 'ok', True)
+('001101022', 'ok', True)
+('212011012', 'win1', True)
+('222001110', 'win2', True)
+('221210011', 'ok', True)
+('121122000', 'ok', True)
+('001102120', 'ok', True)
+('200001112', 'ok', True)
+('020010001', 'ok', True)
+('012211201', 'ok', True)
+('202111012', 'win1', True)
+('200121211', 'ok', True)
+('011210200', 'ok', True)
+('112210000', 'ok', True)
+('201220011', 'ok', True)
+('002001120', 'ok', True)
+('212110210', 'win1', True)
+('220112010', 'ok', True)
+('212110201', 'ok', True)
+('102200011', 'ok', True)
+('012112122', 'win2', True)
+('110010022', 'ok', True)
+('100000210', 'ok', True)
+('120120112', 'win1', True)
+('021220101', 'ok', True)
+('100211122', 'ok', True)
+('221100120', 'ok', True)
+('002111200', 'win1', True)
+('000022110', 'ok', True)
+('212100102', 'ok', True)
+('000122110', 'ok', True)
+('112210012', 'win1', True)
+('200110212', 'ok', True)
+('120021102', 'ok', True)
+('100112212', 'ok', True)
+('012122011', 'ok', True)
+('120202110', 'ok', True)
+('210021010', 'ok', True)
+('002000101', 'ok', True)
+('020110102', 'ok', True)
+('220021101', 'ok', True)
+('001212000', 'ok', True)
+('122100100', 'win1', True)
+('122021110', 'ok', True)
+('010221001', 'ok', True)
+('021012021', 'ok', True)
+('021221100', 'ok', True)
+('122100010', 'ok', True)
+('201211000', 'ok', True)
+('001211221', 'win1', True)
+('022001211', 'ok', True)
+('102100012', 'ok', True)
+('212200110', 'ok', True)
+('112102000', 'ok', True)
+('201020112', 'win2', False)
+('122211000', 'ok', True)
+('121002100', 'ok', True)
+('000010212', 'ok', True)
+('121200021', 'ok', True)
+('211002021', 'ok', True)
+('001022110', 'ok', True)
+('122201010', 'ok', True)
+('100020210', 'ok', True)
+('012201120', 'ok', True)
+('221100010', 'ok', True)
+('211102021', 'ok', True)
+('211022001', 'ok', True)
+('210000012', 'ok', True)
+('010020201', 'ok', True)
+('111020020', 'win1', True)
+('022001101', 'ok', True)
+('012120010', 'ok', True)
+('120110022', 'ok', True)
+('020112121', 'ok', True)
+('022110010', 'ok', True)
+('112212201', 'win1', False)
+('012001221', 'ok', True)
+('012210112', 'win1', True)
+('110210220', 'ok', True)
+('220102111', 'win1', True)
+('011022121', 'ok', True)
+('021012112', 'win1', False)
+('010220211', 'ok', True)
+('002001121', 'ok', True)
+('000002011', 'ok', True)
+('201010120', 'win1', False)
+('100202112', 'ok', True)
+('001020000', 'ok', True)
+('102201001', 'ok', True)
+('121211022', 'ok', True)
+('011010022', 'ok', True)
+('012001221', 'ok', True)
+('012001120', 'ok', True)
+('220011210', 'ok', True)
+('120000120', 'ok', True)
+('010022010', 'ok', True)
+('210120201', 'ok', True)
+('221120001', 'ok', True)
+('120010002', 'ok', True)
+
+
+### function 4:
+def solver(input):
+    # Define the winning patterns
+    winning_patterns = [
+        [0, 1, 2],  # Row 1
+        [3, 4, 5],  # Row 2
+        [6, 7, 8],  # Row 3
+        [0, 3, 6],  # Column 1
+        [1, 4, 7],  # Column 2
+        [2, 5, 8],  # Column 3
+        [0, 4, 8],  # Diagonal 1
+        [2, 4, 6]   # Diagonal 2
+    ]
+    
+    # Check for Player 1 win
+    for pattern in winning_patterns:
+        if input[pattern[0]] == input[pattern[1]] == input[pattern[2]] == '1':
+            return "win1"
+    
+    # Check for Player 2 win
+    for pattern in winning_patterns:
+        if input[pattern[0]] == input[pattern[1]] == input[pattern[2]] == '2':
+            return "win2"
+    
+    # If the game is ongoing (empty spaces exist)
+    if '0' in input:
+        return "ok"
+    
+    # If no winner and no empty spaces, it's a draw
+    return "draw"
+
+### observations 4 (input, label, response):
+('022011201', 'ok', True)
+('221010210', 'ok', True)
+('210020112', 'win2', False)
+('010201212', 'ok', True)
+('210112002', 'ok', True)
+('110200021', 'ok', True)
+('201010020', 'ok', True)
+('002121001', 'ok', True)
+('010001220', 'ok', True)
+('011212000', 'ok', True)
+('201021102', 'win2', False)
+('002120101', 'ok', True)
+('012201021', 'ok', True)
+('201011221', 'win1', True)
+('101012020', 'ok', True)
+('221100201', 'ok', True)
+('010022121', 'ok', True)
+('222110112', 'win2', True)
+('120001210', 'ok', True)
+('101021202', 'ok', True)
+('210100201', 'ok', True)
+('002100010', 'ok', True)
+('120110022', 'ok', True)
+('211210020', 'ok', True)
+('000112012', 'ok', True)
+('212211100', 'ok', True)
+('102121102', 'win1', True)
+('212122110', 'ok', True)
+('001122001', 'ok', True)
+('200122011', 'ok', True)
+('120020100', 'ok', True)
+('001022101', 'ok', True)
+('121012122', 'win1', False)
+('000112212', 'ok', True)
+('101220112', 'ok', True)
+('101000122', 'ok', True)
+('002122111', 'win1', True)
+('010012102', 'ok', True)
+('011020212', 'ok', True)
+('210110200', 'ok', True)
+('212211021', 'ok', True)
+('121210002', 'ok', True)
+('000121020', 'ok', True)
+('202101210', 'ok', True)
+('212210011', 'win1', True)
+('210211020', 'ok', True)
+('211122112', 'win2', False)
+('020201001', 'ok', True)
+('100211022', 'ok', True)
+('002021011', 'ok', True)
+('110012212', 'win1', True)
+('022111102', 'win1', True)
+('220110000', 'ok', True)
+('221100121', 'ok', True)
+('111200122', 'win1', True)
+('100202101', 'ok', True)
+('020101122', 'ok', True)
+('102001102', 'ok', True)
+('221211000', 'ok', True)
+('112210201', 'win1', False)
+('200101200', 'ok', True)
+('020012010', 'ok', True)
+('121000221', 'ok', True)
+('100021012', 'ok', True)
+('122121210', 'win2', False)
+('002011002', 'ok', True)
+('101010202', 'ok', True)
+('001221210', 'ok', True)
+('102220011', 'ok', True)
+('120210021', 'win1', False)
+('201122001', 'ok', True)
+('110020122', 'ok', True)
+('200111122', 'win1', True)
+('100210000', 'ok', True)
+('010021120', 'ok', True)
+('122210112', 'ok', True)
+('000012010', 'ok', True)
+('012201120', 'ok', True)
+('001002210', 'ok', True)
+('111200002', 'win1', True)
+('011212012', 'win1', True)
+('010120200', 'ok', True)
+('002010012', 'ok', True)
+('212111002', 'win1', True)
+('120112012', 'ok', True)
+('011020221', 'ok', True)
+('001120000', 'ok', True)
+('121020000', 'ok', True)
+('110002021', 'ok', True)
+('121220010', 'ok', True)
+('120021102', 'ok', True)
+('012120012', 'ok', True)
+('001212201', 'ok', True)
+('122011000', 'ok', True)
+('110122212', 'ok', True)
+('002102121', 'ok', True)
+('102110122', 'win1', True)
+('000112200', 'ok', True)
+('022110120', 'ok', True)
+('102101022', 'ok', True)
