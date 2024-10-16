@@ -24,29 +24,21 @@ class TransformerAlgorithm(Algorithm):
         if not self.is_trained:
             return random.randint(0, 4)
         else:
-            self.model.eval()
             with torch.no_grad():
                 output = self.model(features)
                 prediction = torch.argmax(output, dim=1)
             return int(prediction.item())
 
-    def update_history(self, observation: str, guess: int, correct_label: int):
+    def update_history(self, observation: str, guess: int, correct_label: int) -> None:
         super().update_history(observation, guess, correct_label)
         self.train_model()
 
-    def train_model(self):
+    def train_model(self) -> None:
         if len(self.history) >= 3:  # Reduced from 5
             self.is_trained = True
-            X = []
-            y = []
-            for obs, _, label in self.history[-10:]:  # Use only the last 10 samples
-                features = self.observation_to_features(obs)
-                X.append(features)
-                y.append(label)
-            X = torch.tensor(X, dtype=torch.long).to(self.device)
-            y = torch.tensor(y, dtype=torch.long).to(self.device)
+            X = torch.tensor([self.observation_to_features(obs) for obs, _, _ in self.history[-10:]], dtype=torch.long).to(self.device)
+            y = torch.tensor([label for _, _, label in self.history[-10:]], dtype=torch.long).to(self.device)
 
-            self.model.train()
             for _ in range(5):  # Multiple training iterations
                 self.optimizer.zero_grad()
                 output = self.model(X)

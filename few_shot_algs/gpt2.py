@@ -3,6 +3,10 @@ from transformers import GPT2Tokenizer, GPT2LMHeadModel, AdamW
 from few_shot_algs.few_shot_alg import Algorithm
 import random
 from torch.utils.data import DataLoader, Dataset
+import warnings
+
+# Disable the specific warning
+warnings.filterwarnings("ignore", message="This implementation of AdamW is deprecated")
 
 # Check for accelerate library
 try:
@@ -83,6 +87,10 @@ class GPT2Algorithm(Algorithm):
         self.few_shot_examples = few_shot_examples
         self.is_trained = False
 
+        # Set pad_token to eos_token
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.model.config.pad_token_id = self.tokenizer.eos_token_id
+
         # Add special tokens for the input and output format
         special_tokens = {'additional_special_tokens': ['[STATE]', '[LABEL]']}
         self.tokenizer.add_special_tokens(special_tokens)
@@ -132,7 +140,11 @@ class GPT2Algorithm(Algorithm):
             for _ in range(3):  # Perform 3 epochs of training
                 for batch in dataloader:
                     optimizer.zero_grad()
-                    outputs = self.model(input_ids=batch['input_ids'], attention_mask=batch['attention_mask'], labels=batch['labels'])
+                    outputs = self.model(
+                        input_ids=batch['input_ids'],
+                        attention_mask=batch['attention_mask'],
+                        labels=batch['labels']
+                    )
                     loss = outputs.loss
                     loss.backward()
                     optimizer.step()

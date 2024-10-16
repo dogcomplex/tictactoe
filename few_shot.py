@@ -13,6 +13,9 @@ from few_shot_algs.transformer import TransformerAlgorithm
 from few_shot_algs.gpt2 import GPT2Algorithm
 import matplotlib.pyplot as plt
 import numpy as np
+from few_shot_algs.forwardforward import ForwardForwardAlgorithm
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 
 from tictactoe import attempt_solve, label_space
 
@@ -77,12 +80,12 @@ class Tester:
             for alg in self.algorithms:
                 start_time = time.time()
                 guess = alg.predict(observation)
+                alg.update_history(observation, guess, correct_label)
                 end_time = time.time()
                 
                 time_taken = end_time - start_time
                 self.time_taken[alg.__class__.__name__] += time_taken
                 
-                alg.update_history(observation, guess, correct_label)
                 is_correct = int(guess == correct_label)
                 self.results[alg.__class__.__name__].append(is_correct)
                 
@@ -164,6 +167,33 @@ class RandomGuessAlgorithm(Algorithm):
         return random.randint(0, 4)
 
 
+class GaussianProcessAlgorithm(Algorithm):
+    def __init__(self):
+        super().__init__()
+        kernel = C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(1e-3, 1e4))
+        self.model = GaussianProcessClassifier(kernel=kernel, n_restarts_optimizer=5)
+        self.X = []
+        self.y = []
+        self.is_fitted = False
+
+    def predict(self, observation: str) -> int:
+        if self.is_fitted:
+            return self.model.predict([self.state_to_vector(observation)])[0]
+        else:
+            return random.randint(0, 4)
+
+    def update_history(self, observation: str, guess: int, correct_label: int):
+        super().update_history(observation, guess, correct_label)
+        self.X.append(self.state_to_vector(observation))
+        self.y.append(correct_label)
+        if len(self.X) > 1 and len(set(self.y)) > 1:
+            self.model.fit(self.X, self.y)
+            self.is_fitted = True
+
+    @staticmethod
+    def state_to_vector(state: str) -> List[int]:
+        return [int(char) for char in state]
+
 if __name__ == "__main__":
     problem_setup = ProblemSetupTicTacToe()
     algorithms = [
@@ -176,7 +206,8 @@ if __name__ == "__main__":
         SiameseNetworkAlgorithm(),
         GaussianProcessAlgorithm(),
         TransformerAlgorithm(),
-        GPT2Algorithm()
+        #GPT2Algorithm()
+        ForwardForwardAlgorithm()
     ]
     tester = Tester(problem_setup, algorithms, rounds=300)
     tester.run_tests()
