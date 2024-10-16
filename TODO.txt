@@ -1,0 +1,2 @@
+Would be really nice to have emoji support in terminals.  but no luck cuz windows bad
+- problem is Windows Terminal (the only one supposedly good with emojis) needs reconfiguring for python 310 to work ugh

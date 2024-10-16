@@ -1,0 +1,5 @@
+For this problem, we're allowing individual algorithm solvers to be tuned to the specifcs of the search space, which is:
+nine digits of base 3 (0/1/2 * 9) input state space
+five labels 0/1/2/3/4 output label space
+
+Given this info, is there any additional tuning required to improve this algorithm for the few-shot task?  Assume it knows no other information about the nature of the problem
