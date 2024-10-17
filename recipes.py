@@ -290,57 +290,151 @@ class HypothesisManager:
 
     def get_matching_hypotheses(self, observation: torch.Tensor) -> torch.Tensor:
         matching_indices = []
+        obs_mask = (1 << torch.arange(27, device=self.device)).masked_fill(observation[:27] == 0, 0).sum().item()
+        
         for batch_start in range(0, self.total_hypotheses, self.batch_size):
             batch_end = min(batch_start + self.batch_size, self.total_hypotheses)
             
-            # Only consider valid hypotheses
-            valid_batch = self.valid_hypotheses[batch_start:batch_end]
-            batch = unpack_bits(self.hypotheses[batch_start:batch_end][valid_batch])
+            batch = self.hypotheses[batch_start:batch_end]
             
-            if batch.shape[0] > 0:  # Only process if there are valid hypotheses in this batch
-                input_matches = torch.all(batch[:, :27] | ~observation[:27].unsqueeze(0), dim=1)
-                matching_batch_indices = torch.where(input_matches)[0] + batch_start + torch.where(valid_batch)[0][0]
-                matching_indices.append(matching_batch_indices)
+            # Check if observation is a bitwise subset of each hypothesis
+            input_matches = (batch & obs_mask) == obs_mask
+            
+            matching_batch_indices = torch.where(input_matches)[0] + batch_start
+            matching_indices.append(matching_batch_indices)
         
         return torch.cat(matching_indices) if matching_indices else torch.tensor([], device=self.device)
 
+    def _print_sample_hypotheses(self, sampled_indices, correct_label):
+        for idx in sampled_indices:
+            hyp = unpack_bits(self.hypotheses[idx].unsqueeze(0)).squeeze(0)
+            vis = self.visualize_hypothesis(hyp)
+            print(f"{vis} ::: Correct Label: {correct_label}")
+
+    def visualize_hypothesis(self, hypothesis):
+        # Convert hypothesis to a list if it's a tensor
+        if torch.is_tensor(hypothesis):
+            hypothesis = hypothesis.tolist()
+        
+        position_tokens = []
+        for i in range(9):
+            state = (hypothesis[i], hypothesis[i+9], hypothesis[i+18])
+            if state == (1, 0, 0):
+                position_tokens.append(f"E{i+1}")
+            elif state == (0, 1, 0):
+                position_tokens.append(f"X{i+1}")
+            elif state == (0, 0, 1):
+                position_tokens.append(f"O{i+1}")
+            elif state == (1, 1, 0):
+                position_tokens.append(f"!O{i+1}")
+            elif state == (1, 0, 1):
+                position_tokens.append(f"!X{i+1}")
+            elif state == (0, 1, 1):
+                position_tokens.append(f"!E{i+1}")
+            elif state == (1, 1, 1):
+                position_tokens.append("")
+            else:
+                position_tokens.append("?")  # Handle any unexpected states
+
+        output_tokens = []
+        output_mapping = {27: 'C', 28: 'W', 29: 'L', 30: 'D', 31: 'E'}
+        for i in range(27, 32):
+            if hypothesis[i]:
+                output_tokens.append(output_mapping[i])
+        
+        position_str = " ".join(token for token in position_tokens if token)
+        output_str = " | ".join(output_tokens) if output_tokens else "?"
+        
+        # filter out double spaces:
+        position_str = position_str.replace("  ", " ")
+
+        return f"{position_str} => {output_str}"
+
+    @torch.no_grad()
     def update_valid_hypotheses(self, observation: str, correct_label: str):
-        obs_tensor = map_observation_to_tensor(observation, correct_label)
+        # Convert tensors to CPU at the start to reduce GPU memory usage
+        obs_tensor = map_observation_to_tensor(observation, correct_label).cpu()
+        obs_mask = (1 << torch.arange(27)).masked_fill(obs_tensor[:27] == 0, 0).sum().item()
+        correct_output_mask = 1 << token_to_index[correct_label]
         
         total_input_matches = 0
         total_newly_invalid = 0
+        prev_valid_count = int(self.valid_hypotheses.sum().item())
         
+        newly_still_valid_samples = []
+        newly_invalid_samples = []
+        sample_size = 10
+
         for batch_start in range(0, self.total_hypotheses, self.batch_size):
             batch_end = min(batch_start + self.batch_size, self.total_hypotheses)
             
-            # Only consider hypotheses that were valid before this update
-            valid_mask = self.valid_hypotheses[batch_start:batch_end].clone()  # Create a copy
-            batch = unpack_bits(self.hypotheses[batch_start:batch_end][valid_mask])
+            valid_mask = self.valid_hypotheses[batch_start:batch_end].clone().cpu()
+            batch = self.hypotheses[batch_start:batch_end][valid_mask].cpu()
             
-            if batch.shape[0] > 0:  # Only process if there are valid hypotheses in this batch
-                # Check which hypotheses match the input
-                input_matches = torch.all(batch[:, :27] | ~obs_tensor[:27].unsqueeze(0), dim=1)
+            if len(batch) > 0:
+                input_matches = (batch & obs_mask) == obs_mask
+                output_matches = (batch & correct_output_mask) != 0
                 
-                # For those that match the input, check if they also match the output
-                output_matches = torch.all(batch[:, 27:] | ~obs_tensor[27:].unsqueeze(0), dim=1)
-                
-                # Identify newly invalid hypotheses
                 newly_invalid = input_matches & ~output_matches
+                newly_still_valid = input_matches & output_matches
                 
-                # Update valid hypotheses
-                valid_mask[valid_mask.clone()] &= ~newly_invalid
-                self.valid_hypotheses[batch_start:batch_end] = valid_mask
+                self.valid_hypotheses[batch_start:batch_end][valid_mask] &= ~newly_invalid.to(self.device)
                 
-                total_input_matches += input_matches.sum().item()
-                total_newly_invalid += newly_invalid.sum().item()
+                total_input_matches += int(input_matches.sum().item())
+                total_newly_invalid += int(newly_invalid.sum().item())
+
+                # Sample newly still valid hypotheses
+                if len(newly_still_valid_samples) < sample_size:
+                    still_valid_indices = torch.where(newly_still_valid)[0]
+                    num_to_sample = min(sample_size - len(newly_still_valid_samples), len(still_valid_indices))
+                    if num_to_sample > 0:
+                        sampled_indices = still_valid_indices[torch.randperm(len(still_valid_indices))[:num_to_sample]]
+                        newly_still_valid_samples.extend(batch[sampled_indices].tolist())
+
+                # Sample newly invalid hypotheses
+                if len(newly_invalid_samples) < sample_size:
+                    invalid_indices = torch.where(newly_invalid)[0]
+                    num_to_sample = min(sample_size - len(newly_invalid_samples), len(invalid_indices))
+                    if num_to_sample > 0:
+                        sampled_indices = invalid_indices[torch.randperm(len(invalid_indices))[:num_to_sample]]
+                        newly_invalid_samples.extend(batch[sampled_indices].tolist())
+
+            # Clear unnecessary tensors
+            del valid_mask, batch, input_matches, output_matches, newly_invalid, newly_still_valid
+            
+        new_valid_count = int(self.valid_hypotheses.sum().item())
         
-        valid_count = torch.sum(self.valid_hypotheses).item()
+        unmatched_input_count = prev_valid_count - total_input_matches
+        matched_still_valid = total_input_matches - total_newly_invalid
         
         print(f"Update results for observation '{observation}' with label '{correct_label}':")
-        print(f"  Previously valid hypotheses: {valid_count + total_newly_invalid:,}")
-        print(f"  Input matches: {total_input_matches:,} ({total_input_matches/(valid_count + total_newly_invalid):.2%})")
-        print(f"  Newly invalid: {total_newly_invalid:,} ({total_newly_invalid/(valid_count + total_newly_invalid):.2%})")
-        print(f"  Valid hypotheses remaining: {valid_count:,} ({valid_count/self.total_hypotheses:.2%})")
+        print(f"  Previously valid hypotheses: {prev_valid_count:,}")
+        print(f"  > Unmatched input hypotheses: {unmatched_input_count:,} ({unmatched_input_count/prev_valid_count:.2%})")
+        print(f"  > Input matches: {total_input_matches:,} ({total_input_matches/prev_valid_count:.2%})")
+        print(f"      Matched Newly invalid: {total_newly_invalid:,} ({total_newly_invalid/prev_valid_count:.2%})")
+        print(f"      - Matched still valid: {matched_still_valid:,} ({matched_still_valid/prev_valid_count:.2%})")
+        print(f"  = Valid hypotheses remaining: {new_valid_count:,} ({new_valid_count/self.total_hypotheses:.2%})")
+        
+        # Print sample hypotheses
+        print("\nSample of Valid Hypotheses:")
+        for hyp in newly_still_valid_samples:
+            vis = self.visualize_hypothesis(unpack_bits(torch.tensor([hyp], device='cpu')).squeeze(0))
+            print(f"{vis} ::: Correct Label: {correct_label}")
+
+        print("\nSample of Invalid Hypotheses:")
+        for hyp in newly_invalid_samples:
+            vis = self.visualize_hypothesis(unpack_bits(torch.tensor([hyp], device='cpu')).squeeze(0))
+            print(f"{vis} ::: Correct Label: {correct_label}")
+
+        return {
+            'new_valid_count': new_valid_count,
+            'unmatched_input_count': unmatched_input_count,
+            'matched_still_valid': matched_still_valid,
+            'matched_newly_invalid': total_newly_invalid,
+            'input_matches': total_input_matches,
+        }
+
+
 
     def get_random_valid_hypothesis(self) -> torch.Tensor:
         valid_indices = torch.where(self.valid_hypotheses)[0]
@@ -350,13 +444,13 @@ class HypothesisManager:
         hypothesis = unpack_bits(self.hypotheses[random_index].unsqueeze(0))
         return hypothesis.squeeze(0)
 
-    def get_top_hypotheses(self, n=10, observation_tensors=None, matching_indices=None, include_invalid=False):
+    def get_top_hypotheses(self, n=10, observation_tensors=None, matching_indices=None, include_invalid=False, include_miss=False):
         if matching_indices is None:
             indices = torch.arange(self.total_hypotheses, device=self.device)
         else:
             indices = matching_indices
-
-        if not include_invalid:
+        
+        if not include_invalid and not include_miss:
             indices = indices[self.valid_hypotheses[indices]]
         
         if len(indices) == 0:
@@ -399,6 +493,7 @@ class TicTacToeAlgorithm:
 
     def predict(self, observation: str) -> str:
         obs_tensor = map_observation_to_tensor(observation, None)
+        print(f"Observation tensor shape: {obs_tensor.shape}")
         self.current_matching_indices = self.hypothesis_manager.get_matching_hypotheses(obs_tensor)
 
         if len(self.current_matching_indices) == 0:
@@ -438,44 +533,65 @@ class TicTacToeAlgorithm:
 
         # Choose the output with the highest weighted probability
         most_likely_output = weighted_probs.argmax().item()
-        return index_to_token[most_likely_output + 27]
+        result = index_to_token[most_likely_output + 27]
 
-    def update_history(self, observation: str, guess: str, correct_label: str):
-        obs_tensor = map_observation_to_tensor(observation, correct_label)
-        
-        # Use the current_matching_indices from the predict method
-        if self.current_matching_indices is None:
-            self.current_matching_indices = self.hypothesis_manager.get_matching_hypotheses(obs_tensor)
-        
-        # Store the valid hypotheses before updating
-        previously_valid = self.hypothesis_manager.valid_hypotheses[self.current_matching_indices].clone()
-        
+        # Clear caches and collect garbage
+        torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+
+        return result
+
+    def update_history(self, observation: str, guess, correct_label: str):
+        self.observations.append(observation)
+        self.guesses.append(guess)
+        self.correct_labels.append(correct_label)
+
         self.hypothesis_manager.update_valid_hypotheses(observation, correct_label)
-        
-        # Identify newly invalidated hypotheses
-        newly_invalid = previously_valid & ~self.hypothesis_manager.valid_hypotheses[self.current_matching_indices]
-        newly_invalid_indices = self.current_matching_indices[newly_invalid]
-        
-        # Add the new observation to the history
-        self.observations.append((observation, correct_label))
-        
-        # Get all observations so far
-        observation_tensors = process_observations(self.observations)
-        
-        print("\nTop 10 Valid Hypotheses matching the latest observation:")
-        top_valid = self.hypothesis_manager.get_top_hypotheses(10, observation_tensors, self.current_matching_indices, include_invalid=False)
-        for hyp, _, (misses, valid, invalid) in top_valid:
-            vis = visualize_hypothesis(hyp)
-            print(f"{vis} ::: Misses: {misses}, Valid: {valid}, Invalid: {invalid}")
-        
-        print("\nTop 10 Invalid Hypotheses eliminated by the latest observation:")
-        top_invalid = self.hypothesis_manager.get_top_hypotheses(10, observation_tensors, newly_invalid_indices, include_invalid=True)
-        for hyp, _, (misses, valid, invalid) in top_invalid:
-            vis = visualize_hypothesis(hyp)
-            print(f"{vis} ::: Misses: {misses}, Valid: {valid}, Invalid: {invalid}")
-        
+
+        # Clear caches and collect garbage
+        torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+
         # Reset current_matching_indices for the next prediction
         self.current_matching_indices = None
+
+    def update_history(self, observation: str, guess, correct_label: str):
+        print(f"Updating history...")
+        if isinstance(guess, int):
+            guess = ['C', 'W', 'L', 'D', 'E'][guess]
+        elif not isinstance(guess, str):
+            print(f"Warning: Unexpected guess type: {type(guess)}. Defaulting to 'E'")
+            guess = 'E'
+        
+        latest_update = self.hypothesis_manager.update_valid_hypotheses(observation, correct_label)
+
+        # Add the new observation to the history
+        self.observations.append((observation, correct_label))
+
+        # Clear caches and collect garbage
+        torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+
+        # Reset current_matching_indices for the next prediction
+        self.current_matching_indices = None
+
+    def _print_sample_hypotheses(self, sample_indices, obs_tensor):
+        for idx in sample_indices:
+            hyp = self.hypothesis_manager.hypotheses[idx]
+            vis = visualize_hypothesis(unpack_bits(hyp.unsqueeze(0)).squeeze(0))
+            
+            # Check if obs_tensor is a tensor or a single value
+            if isinstance(obs_tensor, torch.Tensor) and obs_tensor.dim() > 0:
+                correct_label = obs_tensor[-1].item()
+            else:
+                correct_label = obs_tensor  # Assume it's already the correct label
+            
+            is_valid = (hyp & (1 << token_to_index[correct_label])) != 0
+            status = "Valid" if is_valid else "Invalid"
+            print(f"{vis} ::: {status}")
 
     def get_all_observations(self):
         return self.observations

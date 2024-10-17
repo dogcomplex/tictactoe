@@ -31,6 +31,7 @@ from few_shot_algs.distribution_approximator import DistributionApproximatorAlgo
 from few_shot_algs.multi_armed_bandit import MultiArmedBanditAlgorithm
 from few_shot_algs.locus import LocusAlgorithm
 from few_shot_algs.locus_bandit import LocusBanditAlgorithm
+from few_shot_algs.reptile import MAMLReptileAlgorithm
 
 # 1. Problem Setup
 class ProblemSetupRandom:
@@ -290,6 +291,8 @@ if __name__ == "__main__":
         # DiffusionAlgorithm(),
         # DistributionApproximatorAlgorithm(),
         # MultiArmedBanditAlgorithm(),
+        MultiArmedBanditAlgorithm(strategy='thompson_sampling'),
+        MAMLReptileAlgorithm(),
         # # Ours:
         # LocusBanditAlgorithm(),
         LocusAlgorithm()
