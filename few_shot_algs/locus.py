@@ -4,7 +4,7 @@ from recipes import TicTacToeAlgorithm
 class LocusAlgorithm(Algorithm):
     def __init__(self):
         super().__init__()
-        self.ttt_algorithm = TicTacToeAlgorithm()
+        self.ttt_algorithm = TicTacToeAlgorithm(use_disk_cache=False)
 
     def predict(self, observation: str) -> int:
         guess = self.ttt_algorithm.predict(observation)
@@ -14,4 +14,3 @@ class LocusAlgorithm(Algorithm):
         super().update_history(observation, guess, correct_label)
         correct_label_str = ['C', 'W', 'L', 'D', 'E'][correct_label]
         self.ttt_algorithm.update_history(observation, ['C', 'W', 'L', 'D', 'E'][guess], correct_label_str)
-

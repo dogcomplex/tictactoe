@@ -112,7 +112,6 @@ def validate_hypotheses(hypothesis_generator, observation_tensors, batch_size=10
     print(f"Validation complete. Total time: {total_time:.2f}s")
 
 def process_observations(observations):
-    """Process observations into tensors."""
     return torch.stack([map_observation_to_tensor(board, output_char) for board, output_char in observations])
 
 def map_observation_to_tensor(board, output_char):
@@ -348,26 +347,78 @@ class HypothesisManager:
         hypothesis = unpack_bits(self.hypotheses[random_index].unsqueeze(0))
         return hypothesis.squeeze(0)
 
+    def get_top_hypotheses(self, n=10, observation_tensors=None, matching_indices=None, include_invalid=False):
+        if matching_indices is None:
+            indices = torch.arange(self.total_hypotheses, device=self.device)
+        else:
+            indices = matching_indices
+
+        if not include_invalid:
+            indices = indices[self.valid_hypotheses[indices]]
+        
+        if len(indices) == 0:
+            return []
+        
+        sample_size = min(n * 100, len(indices))
+        sampled_indices = indices[torch.randperm(len(indices))[:sample_size]]
+        
+        hypotheses = unpack_bits(self.hypotheses[sampled_indices])
+        
+        if observation_tensors is not None:
+            stats = self.calculate_hypothesis_stats(hypotheses, observation_tensors)
+            sorted_hypotheses = sorted(zip(hypotheses, sampled_indices, stats), 
+                                       key=lambda x: (-x[2][1], len(visualize_hypothesis(x[0])), x[2][0]))
+        else:
+            sorted_hypotheses = sorted(zip(hypotheses, sampled_indices), 
+                                       key=lambda x: (len(visualize_hypothesis(x[0])), sum(x[0])))
+        
+        return sorted_hypotheses[:n]
+
+    def calculate_hypothesis_stats(self, hypotheses, observation_tensors):
+        obs_inputs = observation_tensors[:, :27]
+        obs_outputs = observation_tensors[:, 27:]
+        
+        input_matches = torch.all(hypotheses[:, :27].unsqueeze(1) | ~obs_inputs.unsqueeze(0), dim=2)
+        output_matches = torch.all(hypotheses[:, 27:].unsqueeze(1) | ~obs_outputs.unsqueeze(0), dim=2)
+        
+        valid_counts = torch.sum(input_matches & output_matches, dim=1)
+        invalid_counts = torch.sum(input_matches & ~output_matches, dim=1)
+        miss_counts = len(observation_tensors) - (valid_counts + invalid_counts)
+        
+        return list(zip(miss_counts.tolist(), valid_counts.tolist(), invalid_counts.tolist()))
+
 class TicTacToeAlgorithm:
     def __init__(self, use_disk_cache=False):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.hypothesis_manager = HypothesisManager(self.device, use_disk_cache)
+        self.observations = []  # Store the observation history
+        self.current_matching_indices = None  # Store matching indices for current observation
 
     def predict(self, observation: str) -> str:
         obs_tensor = map_observation_to_tensor(observation, None)
-        matching_indices = self.hypothesis_manager.get_matching_hypotheses(obs_tensor)
+        self.current_matching_indices = self.hypothesis_manager.get_matching_hypotheses(obs_tensor)
 
-        if len(matching_indices) == 0:
+        if len(self.current_matching_indices) == 0:
+            print("No matching hypotheses found. Returning random guess.")
             return random.choice(['C', 'W', 'L', 'D', 'E'])
 
-        # Move matching_indices to CPU and convert to numpy array
-        matching_indices_np = matching_indices.cpu().numpy()
-        random_index = np.random.choice(matching_indices_np)
+        # Get all matching hypotheses
+        matching_hypotheses = unpack_bits(self.hypothesis_manager.hypotheses[self.current_matching_indices])
         
-        # Convert random_index back to a CUDA tensor
-        random_index_tensor = torch.tensor([random_index], device=self.device)
-        
-        random_hypothesis = unpack_bits(self.hypothesis_manager.hypotheses[random_index_tensor])
+        # Count occurrences of each output flag
+        output_counts = matching_hypotheses[:, 27:].sum(dim=0)
+        total_matches = len(self.current_matching_indices)
+
+        # Calculate and print probability distribution with counts
+        print(f"\nProbability distribution of possible responses (Total matches: {total_matches:,}):")
+        for i, count in enumerate(output_counts):
+            probability = count.item() / total_matches
+            output_char = index_to_token[i + 27]
+            print(f"{output_char}: {probability:.2%} ({count.item():,} / {total_matches:,})")
+
+        # Choose a random matching hypothesis for prediction
+        random_index = torch.randint(0, len(self.current_matching_indices), (1,))
+        random_hypothesis = matching_hypotheses[random_index]
 
         output_probs = random_hypothesis[0, 27:]
         if output_probs.sum() == 0:
@@ -376,7 +427,44 @@ class TicTacToeAlgorithm:
         return index_to_token[output_index + 27]
 
     def update_history(self, observation: str, guess: str, correct_label: str):
+        obs_tensor = map_observation_to_tensor(observation, correct_label)
+        
+        # Use the current_matching_indices from the predict method
+        if self.current_matching_indices is None:
+            self.current_matching_indices = self.hypothesis_manager.get_matching_hypotheses(obs_tensor)
+        
+        # Store the valid hypotheses before updating
+        previously_valid = self.hypothesis_manager.valid_hypotheses[self.current_matching_indices].clone()
+        
         self.hypothesis_manager.update_valid_hypotheses(observation, correct_label)
+        
+        # Identify newly invalidated hypotheses
+        newly_invalid = previously_valid & ~self.hypothesis_manager.valid_hypotheses[self.current_matching_indices]
+        newly_invalid_indices = self.current_matching_indices[newly_invalid]
+        
+        # Add the new observation to the history
+        self.observations.append((observation, correct_label))
+        
+        # Get all observations so far
+        observation_tensors = process_observations(self.observations)
+        
+        print("\nTop 10 Valid Hypotheses matching the latest observation:")
+        top_valid = self.hypothesis_manager.get_top_hypotheses(10, observation_tensors, self.current_matching_indices, include_invalid=False)
+        for hyp, _, (misses, valid, invalid) in top_valid:
+            vis = visualize_hypothesis(hyp)
+            print(f"{vis} ::: Misses: {misses}, Valid: {valid}, Invalid: {invalid}")
+        
+        print("\nTop 10 Invalid Hypotheses eliminated by the latest observation:")
+        top_invalid = self.hypothesis_manager.get_top_hypotheses(10, observation_tensors, newly_invalid_indices, include_invalid=True)
+        for hyp, _, (misses, valid, invalid) in top_invalid:
+            vis = visualize_hypothesis(hyp)
+            print(f"{vis} ::: Misses: {misses}, Valid: {valid}, Invalid: {invalid}")
+        
+        # Reset current_matching_indices for the next prediction
+        self.current_matching_indices = None
+
+    def get_all_observations(self):
+        return self.observations
 
 def main(observations: List[Tuple[str, str]]):
     torch.cuda.empty_cache()
@@ -387,10 +475,9 @@ def main(observations: List[Tuple[str, str]]):
 
     for i, (board, correct_output) in enumerate(observations):
         guess = algorithm.predict(board)
-        print(f"Round {i+1}:")
+        print(f"\nRound {i+1}:")
         print(f"Observation: {board}, Guess: {guess}, Correct: {correct_output}")
         algorithm.update_history(board, guess, correct_output)
-        print()
 
     total_time = time.time() - start_time
     print(f"\nTotal processing time: {total_time:.2f}s")
@@ -401,6 +488,8 @@ observations = [
     ('000000000', 'C'),
     ('020020110', 'C'),
     ('110212221', 'W'),
+    ('000000000', 'C'),
+    ('000000001', 'C'),
 ]
 
 if __name__ == "__main__":

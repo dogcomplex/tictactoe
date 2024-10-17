@@ -82,7 +82,7 @@ class TimeoutException(Exception):
     pass
 
 class Tester:
-    def __init__(self, problem_setup: ProblemSetupTicTacToe, algorithms: List[Algorithm], rounds: int, timeout: float = 2.0):
+    def __init__(self, problem_setup: ProblemSetupTicTacToe, algorithms: List[Algorithm], rounds: int, timeout: float = 200.0):
         self.problem_setup = problem_setup
         self.algorithms = algorithms
         self.rounds = rounds
@@ -273,22 +273,22 @@ class OnlyZerosAlgorithm(Algorithm):
 if __name__ == "__main__":
     problem_setup = ProblemSetupTicTacToe()
     algorithms = [
-        RandomGuessAlgorithm(),
-        OnlyZerosAlgorithm(),
-        DistributionApproximatorAlgorithm(),  # Add the new algorithm here
-        MultiArmedBanditAlgorithm(),  # Add the new algorithm here
-        RandomForestAlgorithm(),
-        KNNAlgorithm(),
-        PrototypicalNetworkAlgorithm(),
-        BayesianNNAlgorithm(),
-        LinearRegressionAlgorithm(),
-        SiameseNetworkAlgorithm(),
-        GaussianProcessAlgorithm(),
-        TransformerAlgorithm(),
-        GPT2Algorithm(),
-        ForwardForwardAlgorithm(),
-        DQNAlgorithm(),
-        DiffusionAlgorithm(),
+        # RandomGuessAlgorithm(),
+        # OnlyZerosAlgorithm(),
+        # DistributionApproximatorAlgorithm(),  # Add the new algorithm here
+        # MultiArmedBanditAlgorithm(),  # Add the new algorithm here
+        # RandomForestAlgorithm(),
+        # KNNAlgorithm(),
+        # PrototypicalNetworkAlgorithm(),
+        # BayesianNNAlgorithm(),
+        # LinearRegressionAlgorithm(),
+        # SiameseNetworkAlgorithm(),
+        # GaussianProcessAlgorithm(),
+        # TransformerAlgorithm(),
+        # GPT2Algorithm(),
+        # ForwardForwardAlgorithm(),
+        # DQNAlgorithm(),
+        # DiffusionAlgorithm(),
         LocusAlgorithm()
     ]
     tester = Tester(problem_setup, algorithms, rounds=600)
