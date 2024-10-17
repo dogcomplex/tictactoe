@@ -1,0 +1,9 @@
+Round,Algorithm,Observation,Guess,Correct Label,Is Correct,Time Taken
+1,RandomGuessAlgorithm,201002010,2,0,0,0.0009763240814208984
+1,OnlyZerosAlgorithm,201002010,0,0,1,0.0
+1,LocusAlgorithm,201002010,0,0,1,5.930497646331787
+2,RandomGuessAlgorithm,101021020,4,0,0,0.0009763240814208984
+2,OnlyZerosAlgorithm,101021020,0,0,1,0.0009763240814208984
+2,LocusAlgorithm,101021020,0,0,1,6.048012971878052
+3,RandomGuessAlgorithm,101001222,2,2,1,0.0009768009185791016
+3,OnlyZerosAlgorithm,101001222,0,2,0,0.0
