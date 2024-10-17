@@ -29,6 +29,7 @@ from few_shot_algs.dqn import DQNAlgorithm
 from few_shot_algs.diffusion import DiffusionAlgorithm
 from few_shot_algs.distribution_approximator import DistributionApproximatorAlgorithm
 from few_shot_algs.multi_armed_bandit import MultiArmedBanditAlgorithm
+from few_shot_algs.locus import LocusAlgorithm
 
 # 1. Problem Setup
 class ProblemSetupRandom:
@@ -287,7 +288,8 @@ if __name__ == "__main__":
         GPT2Algorithm(),
         ForwardForwardAlgorithm(),
         DQNAlgorithm(),
-        DiffusionAlgorithm()
+        DiffusionAlgorithm(),
+        LocusAlgorithm()
     ]
     tester = Tester(problem_setup, algorithms, rounds=600)
     tester.run_tests()
