@@ -1,0 +1,3 @@
+Round,Algorithm,Observation,Guess,Correct Label,Is Correct,Time Taken
+1,LocusBanditAlgorithm,200101021,,0,0,46.41573405265808
+2,LocusBanditAlgorithm,012101212,,0,0,47.66104054450989
