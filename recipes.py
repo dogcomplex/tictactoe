@@ -1,6 +1,9 @@
 import torch
 import time
 import random
+from typing import List, Tuple
+import numpy as np
+import os
 
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
@@ -21,8 +24,7 @@ token_to_index = {
 index_to_token = {v: k for k, v in token_to_index.items()}
 num_tokens = len(token_to_index)
 
-def generate_valid_hypotheses(batch_size=10000000):
-    # 50000000 for 24gb vram reasonable
+def generate_valid_hypotheses(batch_size):
     """Generate valid hypotheses efficiently using bitwise operations."""
     num_positions = 9
     position_options = 7  # 7 possible states for each position
@@ -42,7 +44,7 @@ def generate_valid_hypotheses(batch_size=10000000):
         position_states = (position_states // (position_options ** torch.arange(num_positions, device=device))) % position_options
 
         # Generate hypotheses using bitwise operations
-        hypotheses = torch.ones((batch_size, num_tokens), dtype=torch.bool, device=device)
+        hypotheses = torch.ones((batch_size, 32), dtype=torch.bool, device=device)
         
         # Set position tokens (inverted logic)
         for i in range(num_positions):
@@ -127,8 +129,9 @@ def map_observation_to_tensor(board, output_char):
         token_idx = token_to_index[token]
         tokens[token_idx] = True
     
-    output_idx = token_to_index.get(output_char, token_to_index['E'])
-    tokens[output_idx] = True
+    if output_char is not None:
+        output_idx = token_to_index.get(output_char, token_to_index['E'])
+        tokens[output_idx] = True
     return tokens
 
 def visualize_hypothesis(hypothesis):
@@ -173,28 +176,23 @@ def visualize_hypothesis(hypothesis):
 def validate_all_hypotheses(results_generator, hypothesis_generator, num_observations, sample_size=20):
     """Process all hypothesis validation results and collect statistics and samples."""
     total_hypotheses = 0
-    fully_valid = 0
-    partially_valid = 0
+    valid = 0
     invalid = 0
     
-    fully_valid_samples = []
-    partially_valid_samples = []
+    valid_samples = []
     invalid_samples = []
     
     for batch_results, hypotheses_batch in zip(results_generator, hypothesis_generator):
         total_hypotheses += len(batch_results)
         
-        fully_valid_mask = batch_results[:, 1] == num_observations
-        partially_valid_mask = (batch_results[:, 1] > 0) & (batch_results[:, 2] == 0)
-        invalid_mask = batch_results[:, 2] > 0
+        valid_mask = batch_results[:, 2] == 0  # Hypotheses with no invalid matches are considered valid
+        invalid_mask = ~valid_mask
         
-        fully_valid += torch.sum(fully_valid_mask).item()
-        partially_valid += torch.sum(partially_valid_mask).item()
+        valid += torch.sum(valid_mask).item()
         invalid += torch.sum(invalid_mask).item()
         
         # Sample results and hypotheses for each category
-        for mask, samples in [(fully_valid_mask, fully_valid_samples),
-                              (partially_valid_mask, partially_valid_samples),
+        for mask, samples in [(valid_mask, valid_samples),
                               (invalid_mask, invalid_samples)]:
             if len(samples) < sample_size:
                 indices = torch.where(mask)[0]
@@ -204,17 +202,15 @@ def validate_all_hypotheses(results_generator, hypothesis_generator, num_observa
     
     return {
         'total_hypotheses': total_hypotheses,
-        'fully_valid': fully_valid,
-        'partially_valid': partially_valid,
+        'valid': valid,
         'invalid': invalid,
-        'fully_valid_samples': fully_valid_samples,
-        'partially_valid_samples': partially_valid_samples,
+        'valid_samples': valid_samples,
         'invalid_samples': invalid_samples
     }
 
-def print_shortest_samples(samples, sample_type, limit=20):
-    print(f"\nSample of {sample_type} Hypotheses (Shortest 20):")
-    sorted_samples = sorted(samples, key=lambda x: len(visualize_hypothesis(x[0])))
+def print_sorted_samples(samples, sample_type, limit=20):
+    print(f"\nSample of {sample_type} Hypotheses (Sorted by valid hits, then by conciseness):")
+    sorted_samples = sorted(samples, key=lambda x: (-x[1][1], len(visualize_hypothesis(x[0]))))
     for hypothesis, (misses, valid, invalid) in sorted_samples[:limit]:
         vis = visualize_hypothesis(hypothesis)
         raw_flags = ''.join('1' if flag else '0' for flag in hypothesis)
@@ -222,44 +218,190 @@ def print_shortest_samples(samples, sample_type, limit=20):
         print(f"Raw flags: {raw_flags}")
         print("---")
 
-def main(observations):
-    torch.cuda.empty_cache()  # Clear CUDA cache before starting
+def pack_bits(x: torch.Tensor) -> torch.Tensor:
+    """Pack boolean tensor into int32 tensor."""
+    packed = torch.zeros((x.shape[0],), dtype=torch.int32, device=x.device)
+    for i in range(32):
+        packed |= x[:, i].to(torch.int32) << i
+    return packed
+
+def unpack_bits(x: torch.Tensor) -> torch.Tensor:
+    """Unpack int32 tensor into boolean tensor."""
+    unpacked = torch.zeros((x.shape[0], 32), dtype=torch.bool, device=x.device)
+    for i in range(32):
+        unpacked[:, i] = (x & (1 << i)) != 0
+    return unpacked
+
+class HypothesisManager:
+    def __init__(self, device, use_disk_cache=False):
+        self.device = device
+        self.use_disk_cache = use_disk_cache
+        self.batch_size = 10000000  # Adjust based on your GPU memory
+        self.total_hypotheses = 1250961817  # Total number of possible hypotheses
+        self.hypotheses_file = 'all_hypotheses.pt'
+        self.hypotheses = None
+        self.valid_hypotheses = None
+        self.initialize()
+
+    def initialize(self):
+        print("Initializing hypothesis manager...")
+        if self.use_disk_cache and os.path.exists(self.hypotheses_file):
+            self.load_hypotheses_from_disk()
+        else:
+            self.generate_hypotheses()
+        self.valid_hypotheses = torch.ones(self.total_hypotheses, dtype=torch.bool, device=self.device)
+        print(f"Initialization complete. Total hypotheses: {self.total_hypotheses}")
+
+    def generate_hypotheses(self):
+        print("Generating all hypotheses...")
+        self.hypotheses = torch.zeros((self.total_hypotheses,), dtype=torch.int32, device=self.device)
+        
+        start_time = time.time()
+        hypotheses_generated = 0
+        for batch in generate_valid_hypotheses(self.batch_size):
+            end = min(hypotheses_generated + len(batch), self.total_hypotheses)
+            packed_batch = pack_bits(batch)
+            self.hypotheses[hypotheses_generated:end] = packed_batch
+            hypotheses_generated += len(batch)
+            
+            if hypotheses_generated % (self.batch_size * 10) == 0:
+                elapsed_time = time.time() - start_time
+                progress = hypotheses_generated / self.total_hypotheses
+                estimated_total_time = elapsed_time / progress
+                remaining_time = estimated_total_time - elapsed_time
+                print(f"Progress: {progress*100:.2f}% | Estimated time remaining: {remaining_time/60:.2f} minutes")
+
+        print("All hypotheses generated and stored in VRAM")
+        
+        if self.use_disk_cache:
+            self.save_hypotheses_to_disk()
+
+    def save_hypotheses_to_disk(self):
+        print(f"Saving hypotheses to {self.hypotheses_file}...")
+        torch.save(self.hypotheses, self.hypotheses_file)
+        print(f"Hypotheses saved to disk. File size: {os.path.getsize(self.hypotheses_file) / (1024**3):.2f} GB")
+
+    def load_hypotheses_from_disk(self):
+        print(f"Loading hypotheses from {self.hypotheses_file}...")
+        self.hypotheses = torch.load(self.hypotheses_file, map_location=self.device)
+        print("Hypotheses loaded into VRAM")
+
+    def get_matching_hypotheses(self, observation: torch.Tensor) -> torch.Tensor:
+        matching_indices = []
+        for batch_start in range(0, self.total_hypotheses, self.batch_size):
+            batch_end = min(batch_start + self.batch_size, self.total_hypotheses)
+            
+            # Only consider valid hypotheses
+            valid_batch = self.valid_hypotheses[batch_start:batch_end]
+            batch = unpack_bits(self.hypotheses[batch_start:batch_end][valid_batch])
+            
+            if batch.shape[0] > 0:  # Only process if there are valid hypotheses in this batch
+                input_matches = torch.all(batch[:, :27] | ~observation[:27].unsqueeze(0), dim=1)
+                matching_batch_indices = torch.where(input_matches)[0] + batch_start + torch.where(valid_batch)[0][0]
+                matching_indices.append(matching_batch_indices)
+        
+        return torch.cat(matching_indices) if matching_indices else torch.tensor([], device=self.device)
+
+    def update_valid_hypotheses(self, observation: str, correct_label: str):
+        obs_tensor = map_observation_to_tensor(observation, correct_label)
+        
+        total_input_matches = 0
+        total_newly_invalid = 0
+        
+        for batch_start in range(0, self.total_hypotheses, self.batch_size):
+            batch_end = min(batch_start + self.batch_size, self.total_hypotheses)
+            
+            # Only consider hypotheses that were valid before this update
+            valid_mask = self.valid_hypotheses[batch_start:batch_end].clone()  # Create a copy
+            batch = unpack_bits(self.hypotheses[batch_start:batch_end][valid_mask])
+            
+            if batch.shape[0] > 0:  # Only process if there are valid hypotheses in this batch
+                # Check which hypotheses match the input
+                input_matches = torch.all(batch[:, :27] | ~obs_tensor[:27].unsqueeze(0), dim=1)
+                
+                # For those that match the input, check if they also match the output
+                output_matches = torch.all(batch[:, 27:] | ~obs_tensor[27:].unsqueeze(0), dim=1)
+                
+                # Identify newly invalid hypotheses
+                newly_invalid = input_matches & ~output_matches
+                
+                # Update valid hypotheses
+                valid_mask[valid_mask.clone()] &= ~newly_invalid
+                self.valid_hypotheses[batch_start:batch_end] = valid_mask
+                
+                total_input_matches += input_matches.sum().item()
+                total_newly_invalid += newly_invalid.sum().item()
+        
+        valid_count = torch.sum(self.valid_hypotheses).item()
+        
+        print(f"Update results for observation '{observation}' with label '{correct_label}':")
+        print(f"  Previously valid hypotheses: {valid_count + total_newly_invalid:,}")
+        print(f"  Input matches: {total_input_matches:,} ({total_input_matches/(valid_count + total_newly_invalid):.2%})")
+        print(f"  Newly invalid: {total_newly_invalid:,} ({total_newly_invalid/(valid_count + total_newly_invalid):.2%})")
+        print(f"  Valid hypotheses remaining: {valid_count:,} ({valid_count/self.total_hypotheses:.2%})")
+
+    def get_random_valid_hypothesis(self) -> torch.Tensor:
+        valid_indices = torch.where(self.valid_hypotheses)[0]
+        if len(valid_indices) == 0:
+            raise ValueError("No valid hypotheses available")
+        random_index = valid_indices[torch.randint(0, len(valid_indices), (1,))]
+        hypothesis = unpack_bits(self.hypotheses[random_index].unsqueeze(0))
+        return hypothesis.squeeze(0)
+
+class TicTacToeAlgorithm:
+    def __init__(self, use_disk_cache=False):
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.hypothesis_manager = HypothesisManager(self.device, use_disk_cache)
+
+    def predict(self, observation: str) -> str:
+        obs_tensor = map_observation_to_tensor(observation, None)
+        matching_indices = self.hypothesis_manager.get_matching_hypotheses(obs_tensor)
+
+        if len(matching_indices) == 0:
+            return random.choice(['C', 'W', 'L', 'D', 'E'])
+
+        # Move matching_indices to CPU and convert to numpy array
+        matching_indices_np = matching_indices.cpu().numpy()
+        random_index = np.random.choice(matching_indices_np)
+        
+        # Convert random_index back to a CUDA tensor
+        random_index_tensor = torch.tensor([random_index], device=self.device)
+        
+        random_hypothesis = unpack_bits(self.hypothesis_manager.hypotheses[random_index_tensor])
+
+        output_probs = random_hypothesis[0, 27:]
+        if output_probs.sum() == 0:
+            return random.choice(['C', 'W', 'L', 'D', 'E'])
+        output_index = torch.multinomial(output_probs.float(), 1).item()
+        return index_to_token[output_index + 27]
+
+    def update_history(self, observation: str, guess: str, correct_label: str):
+        self.hypothesis_manager.update_valid_hypotheses(observation, correct_label)
+
+def main(observations: List[Tuple[str, str]]):
+    torch.cuda.empty_cache()
     print("Starting hypothesis generation and validation...")
     start_time = time.time()
-    
-    batch_size = 20000000  # Adjust this based on your GPU memory
-    hypothesis_generator = generate_valid_hypotheses(batch_size)
-    observation_tensors = process_observations(observations)
-    
-    print(f"Observation tensors: {observation_tensors}")
-    
-    results_generator = validate_hypotheses(hypothesis_generator, observation_tensors, batch_size)
-    
-    # Create a new hypothesis generator for sampling
-    sample_hypothesis_generator = generate_valid_hypotheses(batch_size)
-    
-    validation_results = validate_all_hypotheses(results_generator, sample_hypothesis_generator, len(observations))
-    
-    print("\nValidation Results:")
-    print(f"Total hypotheses: {validation_results['total_hypotheses']:,}")
-    print(f"Fully valid hypotheses: {validation_results['fully_valid']:,}")
-    print(f"Partially valid hypotheses: {validation_results['partially_valid']:,}")
-    print(f"Invalid hypotheses: {validation_results['invalid']:,}")
-    
-    print_shortest_samples(validation_results['fully_valid_samples'], "Fully Valid")
-    print_shortest_samples(validation_results['partially_valid_samples'], "Partially Valid")
-    print_shortest_samples(validation_results['invalid_samples'], "Invalid")
-    
+
+    algorithm = TicTacToeAlgorithm()
+
+    for i, (board, correct_output) in enumerate(observations):
+        guess = algorithm.predict(board)
+        print(f"Round {i+1}:")
+        print(f"Observation: {board}, Guess: {guess}, Correct: {correct_output}")
+        algorithm.update_history(board, guess, correct_output)
+        print()
+
     total_time = time.time() - start_time
     print(f"\nTotal processing time: {total_time:.2f}s")
+    print(f"Valid Hypotheses Remaining: {torch.sum(algorithm.hypothesis_manager.valid_hypotheses).item():,}")
 
 # Example Observations
 observations = [
-    ('000000000', 'C'),     # Round 1
-    ('020020110', 'C'),     # Round 2
-    ('110212221', 'W'),     # Round 3
+    ('000000000', 'C'),
+    ('020020110', 'C'),
+    ('110212221', 'W'),
 ]
 
-# Run the Algorithm
 if __name__ == "__main__":
     main(observations)
