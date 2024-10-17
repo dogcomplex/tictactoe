@@ -28,7 +28,7 @@ def generate_valid_hypotheses(batch_size):
     """Generate valid hypotheses efficiently using bitwise operations."""
     num_positions = 9
     position_options = 7  # 7 possible states for each position
-    output_options = 31   # 31 possible output states
+    output_options = 5    # 5 possible output states (C, W, L, D, E)
     total_hypotheses = position_options**num_positions * output_options
 
     print(f"Generating {total_hypotheses:,} hypotheses in batches of {batch_size:,}")
@@ -37,14 +37,14 @@ def generate_valid_hypotheses(batch_size):
 
     for start in range(0, total_hypotheses, batch_size):
         end = min(start + batch_size, total_hypotheses)
-        batch_size = end - start
+        current_batch_size = end - start
 
         # Generate position states
         position_states = torch.arange(start, end, dtype=torch.long, device=device).unsqueeze(1)
         position_states = (position_states // (position_options ** torch.arange(num_positions, device=device))) % position_options
 
         # Generate hypotheses using bitwise operations
-        hypotheses = torch.ones((batch_size, 32), dtype=torch.bool, device=device)
+        hypotheses = torch.ones((current_batch_size, 32), dtype=torch.bool, device=device)
         
         # Set position tokens (inverted logic)
         for i in range(num_positions):
@@ -52,14 +52,14 @@ def generate_valid_hypotheses(batch_size):
             hypotheses[:, i+9] = ~((position_states[:, i] >> 1) & 1).bool()
             hypotheses[:, i+18] = ~((position_states[:, i] >> 2) & 1).bool()
 
-        # Set output tokens (inverted logic)
+        # Set output tokens (only one output token is True for each hypothesis)
         output_states = torch.arange(start, end, device=device) % output_options
-        for i in range(5):
-            hypotheses[:, 27+i] = ~((output_states >> i) & 1).bool()
+        hypotheses[:, 27:] = False  # Reset all output tokens to False
+        hypotheses[torch.arange(current_batch_size), output_states + 27] = True
 
         batches_generated += 1
         if batches_generated % 100 == 0:
-            progress = (start + batch_size) / total_hypotheses * 100
+            progress = (start + current_batch_size) / total_hypotheses * 100
             elapsed_time = time.time() - start_time
             print(f"Progress: {progress:.2f}% | Batches: {batches_generated:,} | Time: {elapsed_time:.2f}s")
 
@@ -236,7 +236,7 @@ class HypothesisManager:
         self.device = device
         self.use_disk_cache = use_disk_cache
         self.batch_size = 10000000  # Adjust based on your GPU memory
-        self.total_hypotheses = 1250961817  # Total number of possible hypotheses
+        self.total_hypotheses = 7**9 * 5  # Correct calculation: 7^9 * 5 = 201,326,595
         self.hypotheses_file = 'all_hypotheses.pt'
         self.hypotheses = None
         self.valid_hypotheses = None
@@ -260,7 +260,7 @@ class HypothesisManager:
         for batch in generate_valid_hypotheses(self.batch_size):
             end = min(hypotheses_generated + len(batch), self.total_hypotheses)
             packed_batch = pack_bits(batch)
-            self.hypotheses[hypotheses_generated:end] = packed_batch
+            self.hypotheses[hypotheses_generated:end] = packed_batch[:end-hypotheses_generated]
             hypotheses_generated += len(batch)
             
             if hypotheses_generated % (self.batch_size * 10) == 0:
@@ -270,7 +270,10 @@ class HypothesisManager:
                 remaining_time = estimated_total_time - elapsed_time
                 print(f"Progress: {progress*100:.2f}% | Estimated time remaining: {remaining_time/60:.2f} minutes")
 
-        print("All hypotheses generated and stored in VRAM")
+            if hypotheses_generated >= self.total_hypotheses:
+                break
+
+        print(f"All hypotheses generated and stored in VRAM. Total: {hypotheses_generated:,}")
         
         if self.use_disk_cache:
             self.save_hypotheses_to_disk()
@@ -409,22 +412,33 @@ class TicTacToeAlgorithm:
         output_counts = matching_hypotheses[:, 27:].sum(dim=0)
         total_matches = len(self.current_matching_indices)
 
-        # Calculate and print probability distribution with counts
+        # Calculate unweighted probability distribution
+        unweighted_probs = output_counts.float() / total_matches
+
+        # Calculate weighted probability distribution
+        if len(self.observations) > 0:
+            observation_tensors = process_observations(self.observations)
+            stats = self.hypothesis_manager.calculate_hypothesis_stats(matching_hypotheses, observation_tensors)
+            weights = torch.tensor([stat[1] for stat in stats], device=self.device).float()  # Use valid counts as weights
+            weighted_output_counts = (matching_hypotheses[:, 27:].float() * weights.unsqueeze(1)).sum(dim=0)
+            weighted_probs = weighted_output_counts / weights.sum()
+        else:
+            weighted_probs = unweighted_probs
+
+        # Print probability distributions with counts
         print(f"\nProbability distribution of possible responses (Total matches: {total_matches:,}):")
-        for i, count in enumerate(output_counts):
-            probability = count.item() / total_matches
+        print("Output | Unweighted Prob | Weighted Prob | Count")
+        print("-----------------------------------------------------")
+        for i in range(5):
             output_char = index_to_token[i + 27]
-            print(f"{output_char}: {probability:.2%} ({count.item():,} / {total_matches:,})")
+            unweighted_prob = unweighted_probs[i].item()
+            weighted_prob = weighted_probs[i].item()
+            count = output_counts[i].item()
+            print(f"{output_char:6} | {unweighted_prob:.6f} | {weighted_prob:.6f} | {count:,}")
 
-        # Choose a random matching hypothesis for prediction
-        random_index = torch.randint(0, len(self.current_matching_indices), (1,))
-        random_hypothesis = matching_hypotheses[random_index]
-
-        output_probs = random_hypothesis[0, 27:]
-        if output_probs.sum() == 0:
-            return random.choice(['C', 'W', 'L', 'D', 'E'])
-        output_index = torch.multinomial(output_probs.float(), 1).item()
-        return index_to_token[output_index + 27]
+        # Choose the output with the highest weighted probability
+        most_likely_output = weighted_probs.argmax().item()
+        return index_to_token[most_likely_output + 27]
 
     def update_history(self, observation: str, guess: str, correct_label: str):
         obs_tensor = map_observation_to_tensor(observation, correct_label)

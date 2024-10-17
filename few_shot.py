@@ -30,6 +30,7 @@ from few_shot_algs.diffusion import DiffusionAlgorithm
 from few_shot_algs.distribution_approximator import DistributionApproximatorAlgorithm
 from few_shot_algs.multi_armed_bandit import MultiArmedBanditAlgorithm
 from few_shot_algs.locus import LocusAlgorithm
+from few_shot_algs.locus_bandit import LocusBanditAlgorithm
 
 # 1. Problem Setup
 class ProblemSetupRandom:
@@ -273,10 +274,8 @@ class OnlyZerosAlgorithm(Algorithm):
 if __name__ == "__main__":
     problem_setup = ProblemSetupTicTacToe()
     algorithms = [
-        # RandomGuessAlgorithm(),
-        # OnlyZerosAlgorithm(),
-        # DistributionApproximatorAlgorithm(),  # Add the new algorithm here
-        # MultiArmedBanditAlgorithm(),  # Add the new algorithm here
+        RandomGuessAlgorithm(),
+        OnlyZerosAlgorithm(),
         # RandomForestAlgorithm(),
         # KNNAlgorithm(),
         # PrototypicalNetworkAlgorithm(),
@@ -289,9 +288,13 @@ if __name__ == "__main__":
         # ForwardForwardAlgorithm(),
         # DQNAlgorithm(),
         # DiffusionAlgorithm(),
+        # DistributionApproximatorAlgorithm(),
+        # MultiArmedBanditAlgorithm(),
+        # # Ours:
+        # LocusBanditAlgorithm(),
         LocusAlgorithm()
     ]
-    tester = Tester(problem_setup, algorithms, rounds=600)
+    tester = Tester(problem_setup, algorithms, rounds=1600)
     tester.run_tests()
     tester.compute_metrics()
     tester.plot_results()
