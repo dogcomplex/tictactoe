@@ -17,19 +17,14 @@ class ForwardForwardAlgorithm(Algorithm, nn.Module):
         self.epochs = epochs
         self.batch_size = batch_size
         
+        # Adjust the input dimension of the first layer to account for the one-hot encoded class
         self.layers = nn.ModuleList([
-            nn.Linear(input_dim if i == 0 else hidden_dim, hidden_dim)
+            nn.Linear(input_dim + output_dim if i == 0 else hidden_dim, hidden_dim)
             for i in range(num_layers)
         ])
-        self.output_layer = nn.Linear(hidden_dim, output_dim)
         
-        self.optimizer = optim.Adam(self.parameters(), lr=learning_rate)
-        self.criterion = nn.CrossEntropyLoss()
-    
-    def forward(self, x):
-        for layer in self.layers:
-            x = torch.relu(layer(x))
-        return self.output_layer(x)
+        # Add separate optimizers for each layer
+        self.optimizers = [optim.Adam(layer.parameters(), lr=learning_rate) for layer in self.layers]
     
     def goodness(self, x):
         total_goodness = 0
@@ -39,25 +34,37 @@ class ForwardForwardAlgorithm(Algorithm, nn.Module):
             x = torch.relu(x)
         return total_goodness
     
-    def train_step(self, x, y):
-        self.optimizer.zero_grad()
-        
-        # Forward pass
-        outputs = self(x)
-        loss = self.criterion(outputs, y)
-        
-        # Backward pass
-        loss.backward()
-        self.optimizer.step()
-        
-        return loss.item()
-    
+    def train_step(self, x_pos, x_neg):
+        for layer, optimizer in zip(self.layers, self.optimizers):
+            optimizer.zero_grad()
+            
+            # Compute goodness for positive and negative samples
+            g_pos = torch.sum(torch.relu(layer(x_pos)) ** 2, dim=1)
+            g_neg = torch.sum(torch.relu(layer(x_neg)) ** 2, dim=1)
+            
+            # Compute loss
+            loss = torch.mean(torch.log(1 + torch.exp(self.threshold - g_pos))) + \
+                   torch.mean(torch.log(1 + torch.exp(g_neg - self.threshold)))
+            
+            # Backward and optimize for this layer only
+            loss.backward()
+            optimizer.step()
+            
+            # Detach x_pos and x_neg for the next layer
+            x_pos = layer(x_pos).detach()
+            x_neg = layer(x_neg).detach()
+
     def predict(self, observation: str) -> int:
-        x = torch.tensor([int(digit) for digit in observation], dtype=torch.float32).unsqueeze(0)
+        x = self.state_to_vector(observation).unsqueeze(0)
         
         with torch.no_grad():
-            output = self(x)
-            prediction = torch.argmax(output, dim=1).item()
+            goodness_per_class = []
+            for class_idx in range(self.output_dim):
+                x_with_class = torch.cat([x, torch.eye(self.output_dim)[class_idx].unsqueeze(0)], dim=1)
+                goodness = self.goodness(x_with_class)
+                goodness_per_class.append(goodness.item())
+            
+            prediction = goodness_per_class.index(max(goodness_per_class))
         
         return prediction
     
@@ -70,9 +77,21 @@ class ForwardForwardAlgorithm(Algorithm, nn.Module):
                 random.shuffle(self.history)
                 for i in range(0, len(self.history), self.batch_size):
                     batch = self.history[i:i+self.batch_size]
-                    x = torch.tensor([[int(digit) for digit in obs] for obs, _, _ in batch], dtype=torch.float32)
-                    y = torch.tensor([label for _, _, label in batch], dtype=torch.long)
-                    self.train_step(x, y)
+                    x_pos = torch.tensor([
+                        [int(digit) for digit in obs] + [0] * self.output_dim 
+                        for obs, _, label in batch
+                    ], dtype=torch.float32)
+                    for j, (_, _, label) in enumerate(batch):
+                        x_pos[j, self.input_dim + label] = 1
+                    
+                    # Generate negative samples
+                    x_neg = x_pos.clone()
+                    for j in range(len(x_neg)):
+                        wrong_label = random.choice([l for l in range(self.output_dim) if l != batch[j][2]])
+                        x_neg[j, self.input_dim:] = 0
+                        x_neg[j, self.input_dim + wrong_label] = 1
+                    
+                    self.train_step(x_pos, x_neg)
 
     @staticmethod
     def state_to_vector(state: str) -> torch.Tensor:

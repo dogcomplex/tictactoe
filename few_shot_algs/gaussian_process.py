@@ -8,8 +8,9 @@ import numpy as np
 class GaussianProcessAlgorithm(Algorithm):
     def __init__(self):
         super().__init__()
-        kernel = C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(1e-3, 1e3))
-        self.model = GaussianProcessClassifier(kernel=kernel, n_restarts_optimizer=9, random_state=42)
+        # Adjust the kernel for the specific input space
+        kernel = C(1.0) * RBF(length_scale=[1.0] * 9, length_scale_bounds=(1e-3, 1e5))
+        self.model = GaussianProcessClassifier(kernel=kernel, n_restarts_optimizer=9, random_state=42, max_iter_predict=100)
         self.is_trained = False
 
     def predict(self, observation: str) -> int:
@@ -25,15 +26,19 @@ class GaussianProcessAlgorithm(Algorithm):
         self.train_model()
 
     def train_model(self):
-        if len(self.history) >= 5:  # Reduced minimum samples for training
+        if len(self.history) >= 5:  # Minimum samples for training
             X = np.array([self.observation_to_features(obs) for obs, _, _ in self.history])
             y = np.array([label for _, _, label in self.history])
             
             if len(np.unique(y)) >= 2:
-                self.model.fit(X, y)
+                import warnings
+                from sklearn.exceptions import ConvergenceWarning
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                    self.model.fit(X, y)
                 self.is_trained = True
 
     @staticmethod
     def observation_to_features(observation: str) -> np.ndarray:
-        # Convert base-3 string to one-hot encoded array
-        return np.eye(3)[np.array([int(char) for char in observation])].flatten()
+        # Convert base-3 string to array of integers
+        return np.array([int(char) for char in observation])

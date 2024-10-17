@@ -252,11 +252,12 @@ def tictactoe_no_diags(input):
     return "ok"
 
 
-oracle = tictactoe_no_diags
+oracle = tictactoe
 
 boards = {}
 states = {}
 final_states = {}
+
 def move(state):
   if state in states:
     return
@@ -282,6 +283,9 @@ def init():
   move('000000000_')
   return states
 
+print("Initializing TicTacToe all states...")
+states = init()
+print("TicTacToe all states initialized.")
 
 import random
 
@@ -407,7 +411,7 @@ def solver(input):
 
 
 def generate_solve_results(count=100, helper_functions=[]):
-    states = init()
+    
     if __name__ == "__main__":
         print('Unique boards:', len(boards))
         print('Valid states:', len(states))
@@ -458,6 +462,17 @@ def attempt_solve(count=100, helper_functions=[]):
         print(results)
     return results, all_valid
 
+def random_board():
+    return random.choice(list(boards.keys()))
+
+
+def generate_all_answers():
+    all_answers = {}
+    for board in boards:
+        all_answers[board] = oracle(board)
+    return all_answers
+
+all_answers = generate_all_answers()
 
 if __name__ == "__main__":
     
