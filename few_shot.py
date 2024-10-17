@@ -20,8 +20,15 @@ from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 import threading
 from cycler import cycler
+import csv
+from datetime import datetime
+import os
 
-from tictactoe import attempt_solve, label_space
+from tictactoe import attempt_solve, label_space, random_board, all_answers
+from few_shot_algs.dqn import DQNAlgorithm
+from few_shot_algs.diffusion import DiffusionAlgorithm
+from few_shot_algs.distribution_approximator import DistributionApproximatorAlgorithm
+from few_shot_algs.multi_armed_bandit import MultiArmedBanditAlgorithm
 
 # 1. Problem Setup
 class ProblemSetupRandom:
@@ -62,9 +69,11 @@ class ProblemSetupTicTacToe(ProblemSetupRandom):
         self.state_to_label = self.generate_state_label_mapping()
 
     def get_random_observation(self) -> Tuple[str, int]:
-        results, all_valid = attempt_solve(1)
-        print(results)
-        return results[0]['board'], label_space.index(results[0]['solver_result'])
+        board = random_board()
+        answer = all_answers[board]
+        answer_int = label_space.index(answer)
+        print(board, answer_int)
+        return board, answer_int
 
 
 # 3. Tester Class
@@ -82,6 +91,12 @@ class Tester:
         self.cumulative_time = {alg.__class__.__name__: [] for alg in algorithms}
         self.timeout = timeout
         self.disqualified = {alg.__class__.__name__: False for alg in algorithms}
+        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.results_dir = f"results/run_{self.timestamp}"
+        self.log_filename = f"{self.results_dir}/algorithm_results.csv"
+        
+        # Create the results directory if it doesn't exist
+        os.makedirs(self.results_dir, exist_ok=True)
 
     def run_with_timeout(self, func, args):
         result = [TimeoutException()]
@@ -95,47 +110,59 @@ class Tester:
         return result[0]
 
     def run_tests(self):
-        for round_num in range(self.rounds):
-            observation, correct_label = self.problem_setup.get_random_observation()
-            for alg in self.algorithms:
-                alg_name = alg.__class__.__name__
-                if self.disqualified[alg_name]:
-                    self.results[alg_name].append(None)
-                    self.cumulative_accuracy[alg_name].append(self.cumulative_accuracy[alg_name][-1] if self.cumulative_accuracy[alg_name] else 0)
-                    self.cumulative_time[alg_name].append(self.cumulative_time[alg_name][-1] if self.cumulative_time[alg_name] else self.timeout)
-                    continue
+        with open(self.log_filename, 'w', newline='') as log_file:
+            csv_writer = csv.writer(log_file)
+            csv_writer.writerow(['Round', 'Algorithm', 'Observation', 'Guess', 'Correct Label', 'Is Correct', 'Time Taken'])
 
-                try:
-                    start_time = time.time()
-                    guess = self.run_with_timeout(alg.predict, (observation,))
-                    self.run_with_timeout(alg.update_history, (observation, guess, correct_label))
-                    end_time = time.time()
+            for round_num in range(self.rounds):
+                observation, correct_label = self.problem_setup.get_random_observation()
+                for alg in self.algorithms:
+                    alg_name = alg.__class__.__name__
+                    if self.disqualified[alg_name]:
+                        csv_writer.writerow([round_num + 1, alg_name, observation, 'DISQUALIFIED', correct_label, False, self.timeout])
+                        self.results[alg_name].append(None)
+                        self.cumulative_accuracy[alg_name].append(self.cumulative_accuracy[alg_name][-1] if self.cumulative_accuracy[alg_name] else 0)
+                        self.cumulative_time[alg_name].append(self.cumulative_time[alg_name][-1] if self.cumulative_time[alg_name] else self.timeout)
+                        continue
 
-                    time_taken = end_time - start_time
-                    self.time_taken[alg_name] += time_taken
+                    try:
+                        start_time = time.time()
+                        guess = self.run_with_timeout(alg.predict, (observation,))
+                        self.run_with_timeout(alg.update_history, (observation, guess, correct_label))
+                        end_time = time.time()
 
-                    is_correct = int(guess == correct_label)
-                    self.results[alg_name].append(is_correct)
+                        time_taken = end_time - start_time
+                        self.time_taken[alg_name] += time_taken
 
-                    accuracy_so_far = sum(filter(None, self.results[alg_name])) / (round_num + 1)
-                    avg_time_so_far = self.time_taken[alg_name] / (round_num + 1)
+                        is_correct = int(guess == correct_label)
+                        self.results[alg_name].append(is_correct)
 
-                    self.cumulative_accuracy[alg_name].append(accuracy_so_far)
-                    self.cumulative_time[alg_name].append(avg_time_so_far)
+                        accuracy_so_far = sum(filter(None, self.results[alg_name])) / (round_num + 1)
+                        avg_time_so_far = self.time_taken[alg_name] / (round_num + 1)
 
-                    print(f"Round {round_num+1}, Algorithm {alg_name}: "
-                          f"Observation={observation}, Guess={guess}, Correct={correct_label}, "
-                          f"Result={'Correct' if is_correct else 'Incorrect'}, "
-                          f"Time={time_taken:.6f}s, "
-                          f"Accuracy so far={accuracy_so_far:.2%}, "
-                          f"Avg time so far={avg_time_so_far:.6f}s")
+                        self.cumulative_accuracy[alg_name].append(accuracy_so_far)
+                        self.cumulative_time[alg_name].append(avg_time_so_far)
 
-                except TimeoutException:
-                    print(f"Round {round_num+1}, Algorithm {alg_name}: DISQUALIFIED (exceeded {self.timeout}s timeout)")
-                    self.disqualified[alg_name] = True
-                    self.results[alg_name].append(None)
-                    self.cumulative_accuracy[alg_name].append(self.cumulative_accuracy[alg_name][-1] if self.cumulative_accuracy[alg_name] else 0)
-                    self.cumulative_time[alg_name].append(self.timeout)
+                        # Log the result
+                        csv_writer.writerow([round_num + 1, alg_name, observation, guess, correct_label, is_correct, time_taken])
+
+                        print(f"Round {round_num+1}, Algorithm {alg_name}: "
+                              f"Observation={observation}, Guess={guess}, Correct={correct_label}, "
+                              f"Result={'Correct' if is_correct else 'Incorrect'}, "
+                              f"Time={time_taken:.6f}s, "
+                              f"Accuracy so far={accuracy_so_far:.2%}, "
+                              f"Avg time so far={avg_time_so_far:.6f}s")
+
+                    except TimeoutException:
+                        # Log the result
+                        csv_writer.writerow([round_num + 1, alg_name, observation, 'TIMEOUT', correct_label, False, self.timeout])
+                        print(f"Round {round_num+1}, Algorithm {alg_name}: DISQUALIFIED (exceeded {self.timeout}s timeout)")
+                        self.disqualified[alg_name] = True
+                        self.results[alg_name].append(None)
+                        self.cumulative_accuracy[alg_name].append(self.cumulative_accuracy[alg_name][-1] if self.cumulative_accuracy[alg_name] else 0)
+                        self.cumulative_time[alg_name].append(self.timeout)
+
+        print(f"Detailed results have been saved to {self.log_filename}")
 
     def compute_metrics(self):
         for alg_name, results in self.results.items():
@@ -155,61 +182,80 @@ class Tester:
 
     def plot_results(self):
         # Set up a distinctive style cycle
-        colors = plt.cm.tab10(np.linspace(0, 1, 10))
-        line_styles = ['-', '--', '-.', ':']
-        markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
+        num_algorithms = len(self.algorithms)
+        colors = plt.cm.tab20(np.linspace(0, 1, num_algorithms))
+        line_styles = ['-', '--', '-.', ':'] * (num_algorithms // 4 + 1)
+        markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h'] * (num_algorithms // 10 + 1)
         
-        plt.rc('axes', prop_cycle=(cycler(color=colors) +
-                                   cycler(linestyle=line_styles*3) +
-                                   cycler(marker=markers)))
+        plt.rc('axes', prop_cycle=(cycler(color=colors[:num_algorithms]) +
+                                   cycler(linestyle=line_styles[:num_algorithms])))
 
         self._plot_accuracy()
         self._plot_compute_time()
         self._plot_accuracy_time_ratio()
 
     def _plot_accuracy(self):
-        plt.figure(figsize=(12, 6))
-        for alg_name, accuracies in self.cumulative_accuracy.items():
-            plt.plot(range(1, len(accuracies) + 1), accuracies, label=alg_name, linewidth=2, markersize=4)
-        
-        plt.xlabel('Rounds')
-        plt.ylabel('Cumulative Accuracy')
-        plt.title('Algorithm Accuracy Over Time')
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.tight_layout()
-        plt.grid(True, linestyle='--', alpha=0.7)
-        plt.savefig('algorithm_accuracy.png', dpi=300, bbox_inches='tight')
+        plt.figure(figsize=(10, 6))
+        for algorithm in self.algorithms:
+            alg_name = algorithm.__class__.__name__
+            accuracies = self.cumulative_accuracy[alg_name]
+            
+            # Calculate marker interval based on number of rounds
+            marker_interval = max(1, len(accuracies) // 20)
+            
+            plt.plot(range(1, len(accuracies) + 1), accuracies, 
+                     label=alg_name, marker='o', markersize=4, markevery=marker_interval)
+        plt.xlabel('Round')
+        plt.ylabel('Accuracy')
+        plt.title('Algorithm Accuracy over Rounds')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(f'{self.results_dir}/algorithm_accuracy.png', dpi=300, bbox_inches='tight')
         plt.close()
 
     def _plot_compute_time(self):
-        plt.figure(figsize=(12, 6))
-        for alg_name, times in self.cumulative_time.items():
-            plt.plot(range(1, len(times) + 1), times, label=alg_name, linewidth=2, markersize=4)
-        
-        plt.xlabel('Rounds')
-        plt.ylabel('Average Compute Time (seconds)')
-        plt.title('Algorithm Compute Time Over Rounds')
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.tight_layout()
-        plt.grid(True, linestyle='--', alpha=0.7)
-        plt.savefig('algorithm_compute_time.png', dpi=300, bbox_inches='tight')
+        plt.figure(figsize=(10, 6))
+        for algorithm in self.algorithms:
+            alg_name = algorithm.__class__.__name__
+            compute_times = self.cumulative_time[alg_name]
+            
+            # Calculate marker interval based on number of rounds
+            marker_interval = max(1, len(compute_times) // 20)
+            
+            plt.plot(range(1, len(compute_times) + 1), compute_times, 
+                     label=alg_name, marker='o', markersize=4, markevery=marker_interval)
+        plt.xlabel('Round')
+        plt.ylabel('Compute Time (seconds)')
+        plt.title('Algorithm Compute Time over Rounds')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(f'{self.results_dir}/algorithm_compute_time.png', dpi=300, bbox_inches='tight')
         plt.close()
 
     def _plot_accuracy_time_ratio(self):
-        plt.figure(figsize=(12, 6))
-        for alg_name in self.cumulative_accuracy.keys():
-            accuracies = np.array(self.cumulative_accuracy[alg_name])
-            times = np.array(self.cumulative_time[alg_name])
-            ratios = accuracies / times
-            plt.plot(range(1, len(ratios) + 1), ratios, label=alg_name, linewidth=2, markersize=4)
-        
-        plt.xlabel('Rounds')
-        plt.ylabel('Accuracy / Compute Time Ratio')
-        plt.title('Algorithm Efficiency (Accuracy/Time) Over Rounds')
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.tight_layout()
-        plt.grid(True, linestyle='--', alpha=0.7)
-        plt.savefig('algorithm_efficiency.png', dpi=300, bbox_inches='tight')
+        plt.figure(figsize=(10, 6))
+        for algorithm in self.algorithms:
+            alg_name = algorithm.__class__.__name__
+            accuracies = self.cumulative_accuracy[alg_name]
+            compute_times = self.cumulative_time[alg_name]
+            ratios = []
+            for acc, time in zip(accuracies, compute_times):
+                if time > 0:
+                    ratios.append(acc / time)
+                else:
+                    ratios.append(0)  # or you could use float('inf') if you prefer
+            
+            # Calculate marker interval based on number of rounds
+            marker_interval = max(1, len(ratios) // 20)
+            
+            plt.plot(range(1, len(ratios) + 1), ratios, 
+                     label=alg_name, marker='o', markersize=4, markevery=marker_interval)
+        plt.xlabel('Round')
+        plt.ylabel('Accuracy / Compute Time')
+        plt.title('Algorithm Efficiency (Accuracy/Time) over Rounds')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(f'{self.results_dir}/algorithm_efficiency.png', dpi=300, bbox_inches='tight')
         plt.close()
 
 # Example Algorithm Implementation (to be expanded later)
@@ -218,38 +264,18 @@ class RandomGuessAlgorithm(Algorithm):
         # Randomly guess a label
         return random.randint(0, 4)
 
-
-class GaussianProcessAlgorithm(Algorithm):
-    def __init__(self):
-        super().__init__()
-        kernel = C(1.0) * RBF(length_scale=1.0, length_scale_bounds=(1e-3, 1e4))
-        self.model = GaussianProcessClassifier(kernel=kernel, n_restarts_optimizer=5)
-        self.X = []
-        self.y = []
-        self.is_fitted = False
-
+class OnlyZerosAlgorithm(Algorithm):
     def predict(self, observation: str) -> int:
-        if self.is_fitted:
-            return self.model.predict([self.state_to_vector(observation)])[0]
-        else:
-            return random.randint(0, 4)
+        return 0
 
-    def update_history(self, observation: str, guess: int, correct_label: int):
-        super().update_history(observation, guess, correct_label)
-        self.X.append(self.state_to_vector(observation))
-        self.y.append(correct_label)
-        if len(self.X) > 1 and len(set(self.y)) > 1:
-            self.model.fit(self.X, self.y)
-            self.is_fitted = True
-
-    @staticmethod
-    def state_to_vector(state: str) -> List[int]:
-        return [int(char) for char in state]
 
 if __name__ == "__main__":
     problem_setup = ProblemSetupTicTacToe()
     algorithms = [
         RandomGuessAlgorithm(),
+        OnlyZerosAlgorithm(),
+        DistributionApproximatorAlgorithm(),  # Add the new algorithm here
+        MultiArmedBanditAlgorithm(),  # Add the new algorithm here
         RandomForestAlgorithm(),
         KNNAlgorithm(),
         PrototypicalNetworkAlgorithm(),
@@ -258,11 +284,13 @@ if __name__ == "__main__":
         SiameseNetworkAlgorithm(),
         GaussianProcessAlgorithm(),
         TransformerAlgorithm(),
-        #GPT2Algorithm()
-        ForwardForwardAlgorithm()
+        GPT2Algorithm(),
+        ForwardForwardAlgorithm(),
+        DQNAlgorithm(),
+        DiffusionAlgorithm()
     ]
-    tester = Tester(problem_setup, algorithms, rounds=300)
+    tester = Tester(problem_setup, algorithms, rounds=600)
     tester.run_tests()
     tester.compute_metrics()
     tester.plot_results()
-    print("Results graphs saved as 'algorithm_accuracy.png', 'algorithm_compute_time.png', and 'algorithm_efficiency.png'")
+    print(f"Results and graphs saved in '{tester.results_dir}'")
