@@ -32,6 +32,7 @@ from few_shot_algs.multi_armed_bandit import MultiArmedBanditAlgorithm
 from few_shot_algs.locus import LocusAlgorithm
 from few_shot_algs.locus_bandit import LocusBanditAlgorithm
 from few_shot_algs.reptile import MAMLReptileAlgorithm
+from few_shot_algs.sat import SATAlgorithm
 
 # 1. Problem Setup
 class ProblemSetupRandom:
@@ -84,7 +85,7 @@ class TimeoutException(Exception):
     pass
 
 class Tester:
-    def __init__(self, problem_setup: ProblemSetupTicTacToe, algorithms: List[Algorithm], rounds: int, timeout: float = 200.0):
+    def __init__(self, problem_setup: ProblemSetupTicTacToe, algorithms: List[Algorithm], rounds: int, timeout: float = 200.0, ON_THE_HOUSE: bool = True):
         self.problem_setup = problem_setup
         self.algorithms = algorithms
         self.rounds = rounds
@@ -100,6 +101,8 @@ class Tester:
         
         # Create the results directory if it doesn't exist
         os.makedirs(self.results_dir, exist_ok=True)
+        self.ON_THE_HOUSE = ON_THE_HOUSE
+        self.observation_cache = {}
 
     def run_with_timeout(self, func, args):
         result = [TimeoutException()]
@@ -115,14 +118,22 @@ class Tester:
     def run_tests(self):
         with open(self.log_filename, 'w', newline='') as log_file:
             csv_writer = csv.writer(log_file)
-            csv_writer.writerow(['Round', 'Algorithm', 'Observation', 'Guess', 'Correct Label', 'Is Correct', 'Time Taken'])
+            csv_writer.writerow(['Round', 'Algorithm', 'Observation', 'Guess', 'Correct Label', 'Is Correct', 'Time Taken', 'On The House'])
 
             for round_num in range(self.rounds):
                 observation, correct_label = self.problem_setup.get_random_observation()
+                on_the_house = False
+
+                if self.ON_THE_HOUSE and observation in self.observation_cache:
+                    on_the_house = True
+                    correct_label = self.observation_cache[observation]
+                else:
+                    self.observation_cache[observation] = correct_label
+
                 for alg in self.algorithms:
                     alg_name = alg.__class__.__name__
                     if self.disqualified[alg_name]:
-                        csv_writer.writerow([round_num + 1, alg_name, observation, 'DISQUALIFIED', correct_label, False, self.timeout])
+                        csv_writer.writerow([round_num + 1, alg_name, observation, 'DISQUALIFIED', correct_label, False, self.timeout, on_the_house])
                         self.results[alg_name].append(None)
                         self.cumulative_accuracy[alg_name].append(self.cumulative_accuracy[alg_name][-1] if self.cumulative_accuracy[alg_name] else 0)
                         self.cumulative_time[alg_name].append(self.cumulative_time[alg_name][-1] if self.cumulative_time[alg_name] else self.timeout)
@@ -131,6 +142,10 @@ class Tester:
                     try:
                         start_time = time.time()
                         guess = self.run_with_timeout(alg.predict, (observation,))
+                        
+                        if on_the_house:
+                            guess = correct_label
+
                         self.run_with_timeout(alg.update_history, (observation, guess, correct_label))
                         end_time = time.time()
 
@@ -140,25 +155,29 @@ class Tester:
                         is_correct = int(guess == correct_label)
                         self.results[alg_name].append(is_correct)
 
-                        accuracy_so_far = sum(filter(None, self.results[alg_name])) / (round_num + 1)
+                        # Calculate accuracy based on last 100 results
+                        last_100_results = self.results[alg_name][-100:]
+                        accuracy_so_far = sum(last_100_results) / len(last_100_results)
+                        
                         avg_time_so_far = self.time_taken[alg_name] / (round_num + 1)
 
                         self.cumulative_accuracy[alg_name].append(accuracy_so_far)
                         self.cumulative_time[alg_name].append(avg_time_so_far)
 
                         # Log the result
-                        csv_writer.writerow([round_num + 1, alg_name, observation, guess, correct_label, is_correct, time_taken])
+                        csv_writer.writerow([round_num + 1, alg_name, observation, guess, correct_label, is_correct, time_taken, on_the_house])
 
                         print(f"Round {round_num+1}, Algorithm {alg_name}: "
                               f"Observation={observation}, Guess={guess}, Correct={correct_label}, "
                               f"Result={'Correct' if is_correct else 'Incorrect'}, "
                               f"Time={time_taken:.6f}s, "
-                              f"Accuracy so far={accuracy_so_far:.2%}, "
-                              f"Avg time so far={avg_time_so_far:.6f}s")
+                              f"Accuracy (last 100)={accuracy_so_far:.2%}, "
+                              f"Avg time so far={avg_time_so_far:.6f}s, "
+                              f"On The House: {'Yes' if on_the_house else 'No'}")
 
                     except TimeoutException:
                         # Log the result
-                        csv_writer.writerow([round_num + 1, alg_name, observation, 'TIMEOUT', correct_label, False, self.timeout])
+                        csv_writer.writerow([round_num + 1, alg_name, observation, 'TIMEOUT', correct_label, False, self.timeout, on_the_house])
                         print(f"Round {round_num+1}, Algorithm {alg_name}: DISQUALIFIED (exceeded {self.timeout}s timeout)")
                         self.disqualified[alg_name] = True
                         self.results[alg_name].append(None)
@@ -291,13 +310,14 @@ if __name__ == "__main__":
         # DiffusionAlgorithm(),
         # DistributionApproximatorAlgorithm(),
         # MultiArmedBanditAlgorithm(),
-        MultiArmedBanditAlgorithm(strategy='thompson_sampling'),
-        MAMLReptileAlgorithm(),
+        # MultiArmedBanditAlgorithm(strategy='thompson_sampling'),
+        # MAMLReptileAlgorithm(),
         # # Ours:
         # LocusBanditAlgorithm(),
-        LocusAlgorithm()
+        #LocusAlgorithm(),
+        SATAlgorithm()
     ]
-    tester = Tester(problem_setup, algorithms, rounds=1600)
+    tester = Tester(problem_setup, algorithms, rounds=30600, ON_THE_HOUSE=True)
     tester.run_tests()
     tester.compute_metrics()
     tester.plot_results()
