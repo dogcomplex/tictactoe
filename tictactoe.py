@@ -287,6 +287,9 @@ print("Initializing TicTacToe all states...")
 states = init()
 print("TicTacToe all states initialized.")
 
+# total of all wins and draws:
+print(len(final_states))
+
 import random
 
 def X_turn(input):

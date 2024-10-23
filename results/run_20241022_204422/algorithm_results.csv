@@ -1,0 +1,3 @@
+Round,Algorithm,Observation,Guess,Correct Label,Is Correct,Time Taken,On The House
+1,RandomGuessAlgorithm,112201102,2,0,0,0.0009772777557373047,False
+1,OnlyZerosAlgorithm,112201102,0,0,1,0.0,False

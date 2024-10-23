@@ -317,7 +317,7 @@ if __name__ == "__main__":
         #LocusAlgorithm(),
         SATAlgorithm()
     ]
-    tester = Tester(problem_setup, algorithms, rounds=30600, ON_THE_HOUSE=True)
+    tester = Tester(problem_setup, algorithms, rounds=5001, ON_THE_HOUSE=True)
     tester.run_tests()
     tester.compute_metrics()
     tester.plot_results()
