@@ -1,0 +1,15 @@
+Round,Algorithm,Observation,Guess,Correct Label,Is Correct,Time Taken,On The House
+1,RandomGuessAlgorithm,102020011,0,0,1,0.000978231430053711,False
+1,OnlyZerosAlgorithm,102020011,0,0,1,0.0009763240814208984,False
+1,SATAlgorithm,102020011,2,0,0,0.21971511840820312,False
+2,RandomGuessAlgorithm,012011202,3,0,0,0.0009770393371582031,False
+2,OnlyZerosAlgorithm,012011202,0,0,1,0.0,False
+2,SATAlgorithm,012011202,0,0,1,10.186593294143677,False
+3,RandomGuessAlgorithm,012001020,4,0,0,0.0009775161743164062,False
+3,OnlyZerosAlgorithm,012001020,0,0,1,0.0,False
+3,SATAlgorithm,012001020,2,0,0,10.37589168548584,False
+4,RandomGuessAlgorithm,121021200,4,0,0,0.0019507408142089844,False
+4,OnlyZerosAlgorithm,121021200,0,0,1,0.0,False
+4,SATAlgorithm,121021200,2,0,0,39.04803800582886,False
+5,RandomGuessAlgorithm,101120020,0,0,1,0.0009756088256835938,False
+5,OnlyZerosAlgorithm,101120020,0,0,1,0.0,False

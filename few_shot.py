@@ -32,7 +32,7 @@ from few_shot_algs.multi_armed_bandit import MultiArmedBanditAlgorithm
 from few_shot_algs.locus import LocusAlgorithm
 from few_shot_algs.locus_bandit import LocusBanditAlgorithm
 from few_shot_algs.reptile import MAMLReptileAlgorithm
-from few_shot_algs.sat import SATAlgorithm
+from few_shot_algs.sat_hypotheses import SATHypothesesAlgorithm
 
 # 1. Problem Setup
 class ProblemSetupRandom:
@@ -315,7 +315,7 @@ if __name__ == "__main__":
         # # Ours:
         # LocusBanditAlgorithm(),
         #LocusAlgorithm(),
-        SATAlgorithm()
+        SATHypothesesAlgorithm()
     ]
     tester = Tester(problem_setup, algorithms, rounds=5001, ON_THE_HOUSE=True)
     tester.run_tests()

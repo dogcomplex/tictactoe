@@ -1,0 +1,21 @@
+Round,Algorithm,Observation,Guess,Correct Label,Is Correct,Time Taken,On The House
+1,RandomGuessAlgorithm,222211011,0,2,0,0.0019528865814208984,False
+1,OnlyZerosAlgorithm,222211011,0,2,0,0.0,False
+1,SATAlgorithm,222211011,3,2,0,0.22268986701965332,False
+2,RandomGuessAlgorithm,020122101,3,0,0,0.0,False
+2,OnlyZerosAlgorithm,020122101,0,0,1,0.0,False
+2,SATAlgorithm,020122101,0,0,1,19.719099283218384,False
+3,RandomGuessAlgorithm,201021210,4,0,0,0.0009765625,False
+3,OnlyZerosAlgorithm,201021210,0,0,1,0.0,False
+3,SATAlgorithm,201021210,0,0,1,7.135462045669556,False
+4,RandomGuessAlgorithm,112112220,0,0,1,0.0,False
+4,OnlyZerosAlgorithm,112112220,0,0,1,0.0,False
+4,SATAlgorithm,112112220,0,0,1,7.402612686157227,False
+5,RandomGuessAlgorithm,112102212,3,2,0,0.0,False
+5,OnlyZerosAlgorithm,112102212,0,2,0,0.0,False
+5,SATAlgorithm,112102212,0,2,0,7.4733006954193115,False
+6,RandomGuessAlgorithm,010121122,1,0,0,0.0009770393371582031,False
+6,OnlyZerosAlgorithm,010121122,0,0,1,0.0009760856628417969,False
+6,SATAlgorithm,010121122,0,0,1,7.783190727233887,False
+7,RandomGuessAlgorithm,002120100,0,0,1,0.0019528865814208984,False
+7,OnlyZerosAlgorithm,002120100,0,0,1,0.0,False
