@@ -26,6 +26,125 @@ class Hypothesis:
     def __str__(self):
         return f"Hypothesis(clauses={self.clauses}, complexity={self.complexity}, score={self.score:.2f}, last_evaluated={self.last_evaluated})"
 
+class HypothesisGenerator:
+    def __init__(self, num_inputs, input_bits, num_outputs, new_hypotheses_per_round=200):
+        self.num_inputs = num_inputs
+        self.input_bits = input_bits
+        self.num_outputs = num_outputs
+        self.new_hypotheses_per_round = new_hypotheses_per_round
+        self.hypothesis_database = set()
+        self.current_clause_size = 1
+        self.max_clause_size = 2
+        self.max_possible_clause_size = num_inputs * input_bits
+
+    def generate_hypotheses(self):
+        new_hypotheses = []
+        input_variables = list(range(1, self.num_inputs * self.input_bits + 1))
+        output_variables = list(range(self.num_inputs * self.input_bits + 1, 
+                                    self.num_inputs * self.input_bits + self.num_outputs + 1))
+
+        while len(new_hypotheses) < self.new_hypotheses_per_round:
+            if self.current_clause_size > self.max_clause_size:
+                break
+
+            hypothesis_clauses = [
+                self._generate_clause(input_variables, output_variables)
+                for _ in range(random.randint(1, 3))
+            ]
+
+            hypothesis_key = tuple(sorted(tuple(sorted(clause)) for clause in hypothesis_clauses))
+            if hypothesis_key not in self.hypothesis_database:
+                self.hypothesis_database.add(hypothesis_key)
+                new_hypotheses.append(Hypothesis(clauses=hypothesis_clauses))
+
+            self._update_clause_generation_state()
+
+        return new_hypotheses
+
+    def _generate_clause(self, input_variables, output_variables):
+        input_clause = self._generate_input_clause(input_variables)
+        output_literal = self._generate_output_literal(output_variables)
+        return [-lit for lit in input_clause] + [output_literal]
+
+    def _generate_input_clause(self, input_variables):
+        effective_size = min(self.current_clause_size, len(input_variables))
+        combination = random.sample(input_variables, effective_size)
+        return [var if random.choice([True, False]) else -var for var in combination]
+
+    def _generate_output_literal(self, output_variables):
+        output_var = random.choice(output_variables)
+        return output_var if random.choice([True, False]) else -output_var
+
+    def _update_clause_generation_state(self):
+        self.current_clause_size += 1
+        if self.current_clause_size > self.max_clause_size:
+            self.max_clause_size = min(self.max_clause_size + 1, self.max_possible_clause_size)
+            self.current_clause_size = 1
+
+class HypothesisValidator:
+    def __init__(self, temperature=1.0, target_hypotheses_per_round=200):
+        self.temperature = temperature
+        self.target_hypotheses_per_round = target_hypotheses_per_round
+        self.moving_average_hypotheses = target_hypotheses_per_round
+        self.alpha = 0.1  # Smoothing factor
+
+    def validate_hypotheses(self, all_hypotheses, base_cnf):
+        selected_hypotheses = self._select_hypotheses(all_hypotheses)
+        return self._evaluate_hypotheses(selected_hypotheses, base_cnf)
+
+    def _select_hypotheses(self, all_hypotheses):
+        if not all_hypotheses:
+            return []
+
+        scores = np.array([max(h.score, 0.001) for h in all_hypotheses])
+        probabilities = np.exp(scores / self.temperature) / np.sum(np.exp(scores / self.temperature))
+        
+        target_ratio = self.target_hypotheses_per_round / self.moving_average_hypotheses
+        num_to_evaluate = min(len(all_hypotheses), 
+                            max(10, int(self.moving_average_hypotheses * target_ratio)))
+        
+        selected_indices = np.random.choice(len(all_hypotheses), 
+                                          size=num_to_evaluate,
+                                          replace=False,
+                                          p=probabilities)
+        return [all_hypotheses[i] for i in selected_indices]
+
+    def _evaluate_hypotheses(self, hypotheses, base_cnf):
+        valid_hypotheses = []
+        rejected_hypotheses = []
+
+        for hypothesis in hypotheses:
+            temp_cnf = CNF()
+            temp_cnf.extend(base_cnf.clauses)
+            temp_cnf.extend(hypothesis.clauses)
+
+            with Solver(bootstrap_with=temp_cnf.clauses) as solver:
+                if solver.solve():
+                    valid_hypotheses.append(hypothesis)
+                else:
+                    hypothesis.is_active = False
+                    rejected_hypotheses.append(hypothesis)
+
+        return valid_hypotheses, rejected_hypotheses
+
+class HypothesisScorer:
+    def __init__(self, alpha=0.3, beta=0.3, gamma=0.4):
+        self.alpha = alpha  # Weight for complexity
+        self.beta = beta    # Weight for simplification
+        self.gamma = gamma  # Weight for probability
+
+    def compute_scores(self, hypothesis, simplified_cnf):
+        hypothesis.complexity_score = 1 / hypothesis.complexity
+        hypothesis.simplification_score = 1 / len(simplified_cnf.clauses)
+        hypothesis.probability_score = hypothesis.posterior_prob or 0.0
+        
+        hypothesis.score = (
+            self.alpha * hypothesis.complexity_score + 
+            self.beta * hypothesis.simplification_score + 
+            self.gamma * hypothesis.probability_score
+        )
+        return hypothesis.score
+
 class SATHypothesesAlgorithm(Algorithm):
     def __init__(self, num_inputs=9, input_bits=3, num_outputs=5):
         super().__init__()
@@ -77,6 +196,10 @@ class SATHypothesesAlgorithm(Algorithm):
         self.max_clause_size = 2  # Starting with simple hypotheses
         self.current_clause_size = 1
         self.max_possible_clause_size = num_inputs * input_bits  # Add this line
+
+        self.generator = HypothesisGenerator(num_inputs, input_bits, num_outputs)
+        self.validator = HypothesisValidator()
+        self.scorer = HypothesisScorer()
 
     def initialize_general_constraints(self):
         logger.debug("Initializing general constraints")
@@ -161,145 +284,28 @@ class SATHypothesesAlgorithm(Algorithm):
         return simplified_cnf
     
 
-    def generate_hypotheses(self):
-        new_hypotheses = []
-        input_variables = list(range(1, self.num_inputs * self.input_bits + 1))
-        output_variables = list(range(self.num_inputs * self.input_bits + 1, self.num_inputs * self.input_bits + self.num_outputs + 1))
-
-        while len(new_hypotheses) < self.new_hypotheses_per_round:
-            if self.current_clause_size > self.max_clause_size:
-                break
-
-            # Generate multiple clauses for each hypothesis
-            num_clauses = random.randint(1, 3)  # Generate 1 to 3 clauses per hypothesis
-            hypothesis_clauses = []
-
-            for _ in range(num_clauses):
-                input_clause = self.generate_input_clause(input_variables)
-                output_literal = self.generate_output_literal(output_variables)
-                implication = [-lit for lit in input_clause] + [output_literal]
-                hypothesis_clauses.append(implication)
-
-            hypothesis_key = tuple(sorted(tuple(sorted(clause)) for clause in hypothesis_clauses))
-            if hypothesis_key not in self.hypothesis_database:
-                self.hypothesis_database.add(hypothesis_key)
-                new_hypothesis = Hypothesis(clauses=hypothesis_clauses)
-                new_hypotheses.append(new_hypothesis)
-
-                if len(new_hypotheses) >= self.new_hypotheses_per_round:
-                    return new_hypotheses
-
-            self.update_clause_generation_state()
-
-        for hypothesis in new_hypotheses:
-            # Assign initial prior probability
-            hypothesis.prior_prob = 1.0 / (self.total_hypotheses_count + len(new_hypotheses))
-            hypothesis.posterior_prob = hypothesis.prior_prob
-
-        self.total_hypotheses_count += len(new_hypotheses)
-        return new_hypotheses
-
-    def generate_input_clause(self, input_variables):
-        # Ensure clause size doesn't exceed available variables
-        effective_size = min(self.current_clause_size, len(input_variables))
-        combination = random.sample(input_variables, effective_size)
-        signs = [random.choice([True, False]) for _ in range(effective_size)]
-        return [var if sign else -var for var, sign in zip(combination, signs)]
-
-    def generate_output_literal(self, output_variables):
-        output_var = random.choice(output_variables)
-        output_sign = random.choice([True, False])
-        return output_var if output_sign else -output_var
-
-    def update_clause_generation_state(self):
-        max_possible_size = self.num_inputs * self.input_bits  # Maximum possible clause size
-        
-        self.current_clause_size += 1
-        if self.current_clause_size > self.max_clause_size:
-            self.max_clause_size = min(self.max_clause_size + 1, max_possible_size)
-            self.current_clause_size = 1
-
-    def compute_scores(self, hypothesis, simplified_cnf):
-        """Precompute all scoring components for a hypothesis."""
-        hypothesis.complexity_score = 1 / hypothesis.complexity
-        hypothesis.simplification_score = 1 / len(simplified_cnf.clauses)
-        hypothesis.probability_score = hypothesis.posterior_prob or 0.0
-        
-        # Calculate final score using weights
-        hypothesis.score = (
-            self.alpha * hypothesis.complexity_score + 
-            self.beta * hypothesis.simplification_score + 
-            self.gamma * hypothesis.probability_score
-        )
-        return hypothesis.score
-
     def validate_hypotheses(self):
-        """Main validation flow coordinating hypothesis evaluation and updates."""
-        all_hypotheses = self.hypotheses + self.generate_hypotheses()
+        all_hypotheses = self.hypotheses + self.generator.generate_hypotheses()
         base_cnf = self.get_base_cnf()
-        selected_hypotheses = self.select_hypotheses_to_evaluate(all_hypotheses)
-        valid_hypotheses, rejected_hypotheses = self.evaluate_hypotheses(selected_hypotheses, base_cnf)
+        valid_hypotheses, rejected_hypotheses = self.validator.validate_hypotheses(all_hypotheses, base_cnf)
+        
+        for hypothesis in valid_hypotheses:
+            simplified_cnf = self.remove_subsumed_clauses(base_cnf)
+            self.scorer.compute_scores(hypothesis, simplified_cnf)
+            hypothesis.last_evaluated = self.round_count
         
         self.update_hypothesis_lists(valid_hypotheses, rejected_hypotheses)
         self.update_optimal_hypotheses(valid_hypotheses)
-        self.update_moving_average(len(selected_hypotheses))
+        self.update_moving_average(len(valid_hypotheses))
         self.auto_tune_temperature()
         
-        self.print_validation_results(len(valid_hypotheses), len(rejected_hypotheses), len(selected_hypotheses))
+        self.print_validation_results(len(valid_hypotheses), len(rejected_hypotheses), len(valid_hypotheses))
 
     def get_base_cnf(self):
         """Creates base CNF with current constraints."""
         base_cnf = CNF()
         base_cnf.extend(self.cnf.clauses)
         return base_cnf
-
-    def select_hypotheses_to_evaluate(self, all_hypotheses):
-        """Selects subset of hypotheses for evaluation using temperature-based sampling."""
-        if not all_hypotheses:
-            print("No hypotheses to validate.")
-            return []
-
-        # Calculate selection probabilities using softmax
-        scores = np.array([max(h.score, 0.001) for h in all_hypotheses])
-        probabilities = np.exp(scores / self.temperature) / np.sum(np.exp(scores / self.temperature))
-        
-        # Calculate number of hypotheses to evaluate
-        target_ratio = self.target_hypotheses_per_round / self.moving_average_hypotheses
-        num_to_evaluate = min(
-            len(all_hypotheses), 
-            max(10, int(self.moving_average_hypotheses * target_ratio))
-        )
-        
-        # Select hypotheses using weighted sampling
-        selected_indices = np.random.choice(
-            len(all_hypotheses),
-            size=num_to_evaluate,
-            replace=False,
-            p=probabilities
-        )
-        return [all_hypotheses[i] for i in selected_indices]
-
-    def evaluate_hypotheses(self, hypotheses, base_cnf):
-        """Evaluates each hypothesis and returns valid and rejected lists."""
-        valid_hypotheses = []
-        rejected_hypotheses = []
-
-        for hypothesis in hypotheses:
-            temp_cnf = CNF()
-            temp_cnf.extend(base_cnf.clauses)
-            temp_cnf.extend(hypothesis.clauses)
-
-            with Solver(bootstrap_with=temp_cnf.clauses) as solver:
-                if solver.solve():
-                    simplified_cnf = self.remove_subsumed_clauses(temp_cnf)
-                    self.compute_scores(hypothesis, simplified_cnf)
-                    hypothesis.last_evaluated = self.round_count
-                    valid_hypotheses.append(hypothesis)
-                else:
-                    hypothesis.is_active = False
-                    rejected_hypotheses.append(hypothesis)
-
-        return valid_hypotheses, rejected_hypotheses
 
     def update_hypothesis_lists(self, valid_hypotheses, rejected_hypotheses):
         """Updates the main hypothesis lists with evaluation results."""
