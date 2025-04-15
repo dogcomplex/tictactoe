@@ -1,0 +1,111 @@
+2025-04-15 02:58:33,169 - __main__ - INFO - --- Starting MVP Run (20250415_025833) ---
+2025-04-15 02:58:33,169 - __main__ - INFO - Task File: tasks/tictactoe_no_diags.json
+2025-04-15 02:58:33,169 - __main__ - INFO - Output Directory: mvp_runs
+2025-04-15 02:58:33,169 - __main__ - INFO - Successfully loaded task: tictactoe_no_diags_small
+2025-04-15 02:58:33,169 - __main__ - INFO - Description: Small set of Tic Tac Toe examples where diagonals DON'T count as wins.
+2025-04-15 02:58:33,169 - __main__ - INFO - Number of Examples: 6
+2025-04-15 02:58:35,629 - strategies.recipes_wrapper - INFO - Recipes_HypothesisManager_v1 using device: cpu
+2025-04-15 02:58:35,868 - strategies.recipes_wrapper - INFO - Internal HypothesisManager initialized (use_disk_cache=True).
+2025-04-15 02:58:35,868 - framework.reporter - INFO - Initialized ResultAggregator.
+2025-04-15 02:58:35,872 - framework.reporter - INFO - Initialized Reporter. Output directory: mvp_runs\run_tictactoe_no_diags_small_20250415_025833
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - INFO - Running SAT_Hypotheses_v1 on task: tictactoe_no_diags_small
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - INFO - Instantiating internal SATHypothesesAlgorithm with num_outputs=5
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - INFO - Processing 6 examples...
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - ERROR - Error processing example 0 for SAT Algorithm: 'SATHypothesesAlgorithm' object has no attribute 'add_observation'
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - ERROR - Error processing example 1 for SAT Algorithm: 'SATHypothesesAlgorithm' object has no attribute 'add_observation'
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - ERROR - Error processing example 2 for SAT Algorithm: 'SATHypothesesAlgorithm' object has no attribute 'add_observation'
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - ERROR - Error processing example 3 for SAT Algorithm: 'SATHypothesesAlgorithm' object has no attribute 'add_observation'
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - ERROR - Error processing example 4 for SAT Algorithm: 'SATHypothesesAlgorithm' object has no attribute 'add_observation'
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - ERROR - Error processing example 5 for SAT Algorithm: 'SATHypothesesAlgorithm' object has no attribute 'add_observation'
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - INFO - Finished processing 0 examples.
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - INFO - Triggering internal hypothesis validation...
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - INFO - Extracting active hypotheses...
+2025-04-15 02:58:35,872 - strategies.sat_wrapper - INFO - Generated 0 CandidateProgram objects.
+2025-04-15 02:58:35,872 - strategies.recipes_wrapper - INFO - Running Recipes_HypothesisManager_v1 on task: tictactoe_no_diags_small
+2025-04-15 02:58:35,872 - strategies.recipes_wrapper - INFO - Processing 6 examples to filter hypotheses...
+2025-04-15 02:58:35,875 - recipes - WARNING - Invalid or non-output token 'win1' passed to map_observation_to_tensor
+2025-04-15 02:58:38,030 - recipes - INFO - Observation updated. Correct label: win1. Input matched: 201768035. Newly invalid: 161414428. Remaining valid: 40353607
+2025-04-15 02:58:38,064 - recipes - WARNING - Invalid or non-output token 'win2' passed to map_observation_to_tensor
+2025-04-15 02:58:40,320 - recipes - INFO - Observation updated. Correct label: win2. Input matched: 201768035. Newly invalid: 40353607. Remaining valid: 0
+2025-04-15 02:58:40,358 - recipes - WARNING - Invalid or non-output token 'ok' passed to map_observation_to_tensor
+2025-04-15 02:58:42,547 - recipes - INFO - Observation updated. Correct label: ok. Input matched: 201768035. Newly invalid: 0. Remaining valid: 0
+2025-04-15 02:58:42,591 - recipes - WARNING - Invalid or non-output token 'ok' passed to map_observation_to_tensor
+2025-04-15 02:58:44,769 - recipes - INFO - Observation updated. Correct label: ok. Input matched: 201768035. Newly invalid: 0. Remaining valid: 0
+2025-04-15 02:58:44,813 - recipes - WARNING - Invalid or non-output token 'win1' passed to map_observation_to_tensor
+2025-04-15 02:58:47,023 - recipes - INFO - Observation updated. Correct label: win1. Input matched: 201768035. Newly invalid: 0. Remaining valid: 0
+2025-04-15 02:58:47,057 - recipes - WARNING - Invalid or non-output token 'draw' passed to map_observation_to_tensor
+2025-04-15 02:58:49,324 - recipes - INFO - Observation updated. Correct label: draw. Input matched: 201768035. Newly invalid: 0. Remaining valid: 0
+2025-04-15 02:58:49,366 - strategies.recipes_wrapper - INFO - Processed 6/6 examples...
+2025-04-15 02:58:49,367 - strategies.recipes_wrapper - INFO - Finished processing 6 examples for filtering.
+2025-04-15 02:58:49,602 - strategies.recipes_wrapper - INFO - No valid hypotheses remaining after filtering. Returning empty list.
+2025-04-15 02:58:49,602 - framework.reporter - INFO - Aggregating and verifying 0 candidates for task 'tictactoe_no_diags_small'...
+2025-04-15 02:58:49,602 - framework.reporter - INFO - Finished processing results.
+2025-04-15 02:58:49,602 - framework.reporter - INFO - Generating reports...
+2025-04-15 02:58:49,603 - framework.reporter - INFO - JSON report saved to: mvp_runs\run_tictactoe_no_diags_small_20250415_025833\report_tictactoe_no_diags_small_20250415_025833.json
+2025-04-15 02:58:49,603 - framework.reporter - INFO - 
+--- Run Summary ---
+2025-04-15 02:58:49,603 - framework.reporter - INFO - Task ID: tictactoe_no_diags_small
+2025-04-15 02:58:49,603 - framework.reporter - INFO - Timestamp: 20250415_025833
+2025-04-15 02:58:49,603 - framework.reporter - INFO - Total Candidates Generated: 0
+2025-04-15 02:58:49,603 - framework.reporter - INFO - Verification Summary:
+2025-04-15 02:58:49,603 - framework.reporter - INFO -   - NOT_VERIFIED: 0
+2025-04-15 02:58:49,603 - framework.reporter - INFO -   - CONSISTENT: 0
+2025-04-15 02:58:49,603 - framework.reporter - INFO -   - CONTRADICTED: 0
+2025-04-15 02:58:49,603 - framework.reporter - INFO -   - ERROR: 0
+2025-04-15 02:58:49,603 - framework.reporter - INFO - 
+Top Consistent Candidates (if any):
+2025-04-15 02:58:49,603 - framework.reporter - INFO -   No consistent candidates found.
+2025-04-15 02:58:49,603 - framework.reporter - INFO - --- End Summary ---
+
+2025-04-15 02:58:49,603 - __main__ - INFO - Tearing down strategies...
+2025-04-15 02:58:49,603 - strategies.sat_wrapper - INFO - SAT_Hypotheses_v1 torn down.
+2025-04-15 02:58:49,675 - strategies.recipes_wrapper - INFO - Recipes_HypothesisManager_v1 torn down.
+2025-04-15 02:58:49,676 - __main__ - INFO - --- MVP Run Finished (20250415_025833) ---
+--- Python Path ---
+['G:\\LOKI\\LOCUS\\tictactoe', 'G:\\LOKI\\LOCUS\\tictactoe', 'C:\\Python313\\python313.zip', 'C:\\Python313\\DLLs', 'C:\\Python313\\Lib', 'C:\\Python313', 'G:\\LOKI\\LOCUS\\tictactoe\\.venv', 'G:\\LOKI\\LOCUS\\tictactoe\\.venv\\Lib\\site-packages']
+-------------------
+Checking framework dir: G:\LOKI\LOCUS\tictactoe\framework
+Framework dir exists: True
+Framework dir contents: ['strategy_interface.py', 'data_structures.py', 'feature_extractor.py', 'dispatcher.py', 'verifier.py', '__pycache__', '__init__.py', 'reporter.py']
+Checking reporter file: G:\LOKI\LOCUS\tictactoe\framework\reporter.py
+Reporter file exists: True
+Successfully imported 'framework' package.
+--- DIAGNOSTICS END ---
+PyTorch version: 2.6.0+cpu
+CUDA available: False
+CUDA version: None
+Using device: cpu
+Initialized FeatureExtractorRunner with 3 extractors.
+Initialized StrategyRegistry.
+Initialized Verifier.
+Initializing TicTacToe all states...
+TicTacToe all states initialized.
+255168
+Verifier using TicTacToe label space: ['ok', 'win1', 'win2', 'draw', 'error']
+Initializing strategy: SAT_Hypotheses_v1
+Initializing strategy: Recipes_HypothesisManager_v1
+Registered strategy: SAT_Hypotheses_v1
+Registered strategy: Recipes_HypothesisManager_v1
+Setting up all registered strategies...
+Setting up strategy: SAT_Hypotheses_v1
+Setting up strategy: Recipes_HypothesisManager_v1
+Initializing hypothesis manager...
+Loading hypotheses from all_hypotheses.pt...
+Hypotheses loaded into VRAM
+Initialization complete. Total hypotheses: 201768035
+Finished setting up strategies.
+Initialized SimpleDispatcher.
+Running feature extraction for task: tictactoe_no_diags_small
+Feature extraction complete. Found 2 features.
+Dispatching task 'tictactoe_no_diags_small' to 2 strategies...
+--- Running Strategy: SAT_Hypotheses_v1 ---
+Strategy SAT_Hypotheses_v1 generated 0 candidates in 0.00s.
+--- Finished Strategy: SAT_Hypotheses_v1 ---
+--- Running Strategy: Recipes_HypothesisManager_v1 ---
+Strategy Recipes_HypothesisManager_v1 generated 0 candidates in 13.73s.
+--- Finished Strategy: Recipes_HypothesisManager_v1 ---
+Dispatcher finished. Total candidates generated: 0
+Tearing down all registered strategies...
+Tearing down strategy: SAT_Hypotheses_v1
+Tearing down strategy: Recipes_HypothesisManager_v1
+Finished tearing down strategies.

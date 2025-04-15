@@ -1,0 +1,12 @@
+{
+  "task_id": "ttt_sanity_check_01",
+  "description": "Simple TTT win condition for Verifier sanity check.",
+  "inputs": [
+    { "board": "111220000" }
+  ],
+  "outputs": [
+    { "label": "win1" }
+  ],
+  "constraints": [],
+  "metadata": { "domain": "tictactoe", "variant": "test" }
+} 

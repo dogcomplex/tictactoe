@@ -1,0 +1,27 @@
+{
+  "task_id": "tictactoe_standard_small",
+  "description": "Small set of standard Tic Tac Toe game states and outcomes.",
+  "inputs": [
+    {"board": "111000000"},
+    {"board": "000222000"},
+    {"board": "121212100"},
+    {"board": "121121212"},
+    {"board": "000000000"},
+    {"board": "100020001"},
+    {"board": "120120102"}
+  ],
+  "outputs": [
+    {"label": "win1"},
+    {"label": "win2"},
+    {"label": "win1"},
+    {"label": "draw"},
+    {"label": "ok"},
+    {"label": "ok"},
+    {"label": "win1"}
+  ],
+  "constraints": ["standard_rules"],
+  "metadata": {
+    "domain": "tictactoe",
+    "variant": "standard"
+  }
+} 

@@ -1,0 +1,25 @@
+{
+  "task_id": "tictactoe_no_diags_small",
+  "description": "Small set of Tic Tac Toe examples where diagonals DON'T count as wins.",
+  "inputs": [
+    {"board": "111000000"}, 
+    {"board": "000222000"}, 
+    {"board": "100010001"}, 
+    {"board": "002020200"}, 
+    {"board": "121212100"}, 
+    {"board": "121121212"} 
+  ],
+  "outputs": [
+    {"label": "win1"},
+    {"label": "win2"},
+    {"label": "ok"}, 
+    {"label": "ok"}, 
+    {"label": "win1"},
+    {"label": "draw"}
+  ],
+  "constraints": ["no_diagonal_wins"],
+  "metadata": {
+    "domain": "tictactoe",
+    "variant": "no_diagonals"
+  }
+} 
