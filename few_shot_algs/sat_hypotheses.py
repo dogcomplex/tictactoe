@@ -14,17 +14,76 @@ logger = logging.getLogger(__name__)
 
 class Hypothesis:
     def __init__(self, clauses, complexity=None):
-        self.clauses = clauses  # List of clauses representing the CNF formula
+        self.clauses = clauses
         self.complexity = complexity or sum(len(clause) for clause in clauses)
         self.score = 0
         self.is_active = True
         self.last_evaluated = 0
-        # Add Bayesian attributes
         self.prior_prob = None
         self.posterior_prob = None
+        # Scoring components
+        self.complexity_score = 0
+        self.simplification_score = 0
+        self.probability_score = 0
 
     def __str__(self):
-        return f"Hypothesis(clauses={self.clauses}, complexity={self.complexity}, score={self.score:.2f}, last_evaluated={self.last_evaluated})"
+        return f"Hypothesis(clauses={self.clauses}, complexity={self.complexity}, score={self.score:.2f})"
+
+
+class CNFManager:
+    def __init__(self, num_inputs, input_bits, num_outputs):
+        self.num_inputs = num_inputs
+        self.input_bits = input_bits
+        self.num_outputs = num_outputs
+        self.cnf = CNF()
+        self.initialize_constraints()
+
+    def initialize_constraints(self):
+        # Add constraints for inputs
+        for i in range(self.num_inputs):
+            self.cnf.append([self._var_input_bit(i, b) for b in range(self.input_bits)])
+            for b1, b2 in itertools.combinations(range(self.input_bits), 2):
+                self.cnf.append([-self._var_input_bit(i, b1), -self._var_input_bit(i, b2)])
+
+        # Add constraints for outputs
+        self.cnf.append([self._var_output_bit(b) for b in range(self.num_outputs)])
+        for b1, b2 in itertools.combinations(range(self.num_outputs), 2):
+            self.cnf.append([-self._var_output_bit(b1), -self._var_output_bit(b2)])
+
+    def _var_input_bit(self, i, b):
+        return i * self.input_bits + b + 1
+
+    def _var_output_bit(self, b):
+        return self.num_inputs * self.input_bits + b + 1
+
+    def get_input_constraints(self, input_binary):
+        return [
+            [self._var_input_bit(i // self.input_bits, i % self.input_bits)] 
+            if bit == '1' else 
+            [-self._var_input_bit(i // self.input_bits, i % self.input_bits)]
+            for i, bit in enumerate(input_binary)
+        ]
+
+    def get_output_constraints(self, output_binary):
+        return [
+            [self._var_output_bit(b)] if bit == '1' else [-self._var_output_bit(b)]
+            for b, bit in enumerate(output_binary)
+        ]
+
+    def remove_subsumed_clauses(self):
+        clause_sets = [frozenset(clause) for clause in self.cnf.clauses]
+        unique_clauses = set(clause_sets)
+        
+        non_subsumed = [
+            list(clause1) for clause1 in unique_clauses
+            if not any(
+                clause1 != clause2 and clause1.issubset(clause2)
+                for clause2 in unique_clauses
+            )
+        ]
+        
+        self.cnf = CNF(from_clauses=non_subsumed)
+        return self.cnf
 
 class HypothesisGenerator:
     def __init__(self, num_inputs, input_bits, num_outputs, new_hypotheses_per_round=200):
@@ -127,6 +186,16 @@ class HypothesisValidator:
 
         return valid_hypotheses, rejected_hypotheses
 
+    def update_moving_average(self, num_evaluated):
+        self.moving_average_hypotheses = (1 - self.alpha) * self.moving_average_hypotheses + self.alpha * num_evaluated
+
+    def auto_tune_temperature(self):
+        if self.moving_average_hypotheses > self.target_hypotheses_per_round:
+            self.temperature *= 1.1
+        else:
+            self.temperature *= 0.9
+        self.temperature = max(0.01, min(100, self.temperature))
+
 class HypothesisScorer:
     def __init__(self, alpha=0.3, beta=0.3, gamma=0.4):
         self.alpha = alpha  # Weight for complexity
@@ -145,356 +214,43 @@ class HypothesisScorer:
         )
         return hypothesis.score
 
-class SATHypothesesAlgorithm(Algorithm):
-    def __init__(self, num_inputs=9, input_bits=3, num_outputs=5):
-        super().__init__()
-        self.num_inputs = num_inputs
-        self.input_bits = input_bits
+class BinaryConverter:
+    def __init__(self, num_outputs):
         self.num_outputs = num_outputs
-        self.observations = []
-        self.round_count = 0
-        self.cache = {}
-        self.cnf = CNF()
-        logger.debug("Initializing SATAlgorithm")
-        self.initialize_general_constraints()
+        self.input_mapping = {'0': '100', '1': '010', '2': '001'}
 
-        # Hypothesis management
-        self.hypotheses = []  # List of active hypotheses
-        self.rejected_hypotheses = []
-        self.rejected_hypotheses_count = 0  # Initialize the counter
-        self.max_clause_size = 2  # Starting with simple hypotheses
-        self.hypothesis_generation_limit = 100000  # Limit to avoid combinatorial explosion
-        self.min_hypotheses = 10000  # Minimum number of hypotheses to maintain
-        
-        # Scoring parameters
-        self.alpha = 0.5  # Weight for complexity score
-        self.beta = 0.5  # Weight for CNF simplification score
-        self.hypothesis_database = set()  # For avoiding redundancy
-        self.optimal_hypotheses = []  # Will store hypotheses with highest scores
-        self.reevaluation_interval = 10  # Reevaluate non-optimal hypotheses every 10 rounds
-        self.target_checks_per_round = 1000  # Target number of hypotheses to check per round
+    def input_to_binary(self, input_str):
+        return ''.join(self.input_mapping.get(char, '000') for char in str(input_str))
 
-        # New attributes for auto-tuning
-        self.target_hypotheses_per_round = 200
-        self.moving_average_hypotheses = 200  # Initial value
-        self.alpha = 0.1  # Smoothing factor for moving average
-        self.temperature = 1.0  # Temperature for softmax, will be auto-tuned
+    def output_to_binary(self, output):
+        return ''.join('1' if i == output else '0' for i in range(self.num_outputs))
 
-        # New attributes for hypothesis generation
-        self.new_hypotheses_per_round = 200
-        self.current_clause_size = 1
-        self.current_combination_index = 0
-        self.current_sign_index = 0
-
-        # Add Bayesian parameters
-        self.total_hypotheses_count = 0
-        self.gamma = 0.4  # Weight for probability score
-        self.alpha = 0.3  # Adjusted weight for complexity
-        self.beta = 0.3   # Adjusted weight for simplification
-
-        # Update hypothesis generation parameters
-        self.max_clause_size = 2  # Starting with simple hypotheses
-        self.current_clause_size = 1
-        self.max_possible_clause_size = num_inputs * input_bits  # Add this line
-
-        self.generator = HypothesisGenerator(num_inputs, input_bits, num_outputs)
-        self.validator = HypothesisValidator()
-        self.scorer = HypothesisScorer()
-
-    def initialize_general_constraints(self):
-        logger.debug("Initializing general constraints")
-        if self.cnf is None:
-            self.cnf = CNF()
-        else:
-            self.cnf.clauses.clear()
-        
-        # Add constraints for each input and output position (exactly one state at a time)
-        for i in range(self.num_inputs):
-            # At least one state is true
-            self.cnf.append([self._var_input_bit(i, b) for b in range(self.input_bits)])
-            # At most one state is true
-            for b1, b2 in itertools.combinations(range(self.input_bits), 2):
-                self.cnf.append([-self._var_input_bit(i, b1), -self._var_input_bit(i, b2)])
-
-        # At least one output state is true
-        self.cnf.append([self._var_output_bit(b) for b in range(self.num_outputs)])
-        # At most one output state is true
-        for b1, b2 in itertools.combinations(range(self.num_outputs), 2):
-            self.cnf.append([-self._var_output_bit(b1), -self._var_output_bit(b2)])
-        
-        logger.debug(f"General constraints initialized. Total clauses: {len(self.cnf.clauses)}")
-
-    def _var_input_bit(self, i, b):
-        return i * self.input_bits + b + 1
-
-    def _var_output_bit(self, b):
-        return self.num_inputs * self.input_bits + b + 1
-
-    def _convert_to_binary(self, data_str, mapping):
-        """Convert input/output strings to binary representation using provided mapping."""
-        binary = ''
-        for char in str(data_str):  # Convert to string to handle both str and int inputs
-            binary += mapping.get(char, '000')
-        return binary
-
-    def _input_to_binary(self, input_str):
-        """Convert input string to binary representation."""
-        mapping = {
-            '0': '100',
-            '1': '010',
-            '2': '001'
-        }
-        return self._convert_to_binary(input_str, mapping)
-
-    def _output_to_binary(self, output):
-        """Convert output value to binary representation."""
-        mapping = {str(i): '1' if i == output else '0' for i in range(self.num_outputs)}
-        return self._convert_to_binary(output, mapping)
-
-    def _binary_to_output(self, binary):
-        """Convert binary string back to output value."""
+    def binary_to_output(self, binary):
         return binary.index('1')
 
-    def remove_subsumed_clauses(self, cnf):
-        original_clause_count = len(cnf.clauses)
-        
-        # Convert to frozenset for faster operations and deduplication
-        clause_sets = [frozenset(clause) for clause in cnf.clauses]
-        unique_clauses = set(clause_sets)
-        
-        # Create list of non-subsumed clauses
-        non_subsumed = []
-        for clause1 in unique_clauses:
-            is_subsumed = False
-            for clause2 in unique_clauses:
-                if clause1 != clause2 and clause1.issubset(clause2):
-                    is_subsumed = True
-                    break
-            if not is_subsumed:
-                non_subsumed.append(list(clause1))
-        
-        # Create new CNF with simplified clauses
-        simplified_cnf = CNF(from_clauses=non_subsumed)
-        removed_clauses = original_clause_count - len(simplified_cnf.clauses)
-        
-        # Maintain existing printouts
-        #print(f"Clause simplification: Removed {removed_clauses} redundant clauses")
-        #print(f"Original clauses: {original_clause_count}, Simplified clauses: {len(simplified_cnf.clauses)}")
-        
-        return simplified_cnf
-    
+class HypothesisStats:
+    def __init__(self):
+        self.round_count = 0
+        self.hypotheses = []
+        self.rejected_hypotheses_count = 0
 
-    def validate_hypotheses(self):
-        all_hypotheses = self.hypotheses + self.generator.generate_hypotheses()
-        base_cnf = self.get_base_cnf()
-        valid_hypotheses, rejected_hypotheses = self.validator.validate_hypotheses(all_hypotheses, base_cnf)
-        
-        for hypothesis in valid_hypotheses:
-            simplified_cnf = self.remove_subsumed_clauses(base_cnf)
-            self.scorer.compute_scores(hypothesis, simplified_cnf)
-            hypothesis.last_evaluated = self.round_count
-        
-        self.update_hypothesis_lists(valid_hypotheses, rejected_hypotheses)
-        self.update_optimal_hypotheses(valid_hypotheses)
-        self.update_moving_average(len(valid_hypotheses))
-        self.auto_tune_temperature()
-        
-        self.print_validation_results(len(valid_hypotheses), len(rejected_hypotheses), len(valid_hypotheses))
-
-    def get_base_cnf(self):
-        """Creates base CNF with current constraints."""
-        base_cnf = CNF()
-        base_cnf.extend(self.cnf.clauses)
-        return base_cnf
-
-    def update_hypothesis_lists(self, valid_hypotheses, rejected_hypotheses):
-        """Updates the main hypothesis lists with evaluation results."""
-        self.hypotheses = [h for h in self.hypotheses if h.is_active] + valid_hypotheses
-        self.rejected_hypotheses.extend(rejected_hypotheses)
-        self.rejected_hypotheses_count += len(rejected_hypotheses)
-
-    def update_optimal_hypotheses(self, valid_hypotheses):
-        """Updates the list of optimal hypotheses."""
-        self.optimal_hypotheses = sorted(
-            valid_hypotheses, 
-            key=lambda h: h.score, 
-            reverse=True
-        )[:10]
-
-    def update_moving_average(self, num_evaluated):
-        """Updates the moving average of hypotheses evaluated per round."""
-        self.moving_average_hypotheses = (
-            (1 - self.alpha) * self.moving_average_hypotheses + 
-            self.alpha * num_evaluated
-        )
-
-    def auto_tune_temperature(self):
-        """Adjusts the temperature parameter based on moving average."""
-        if self.moving_average_hypotheses > self.target_hypotheses_per_round:
-            self.temperature *= 1.1
-        else:
-            self.temperature *= 0.9
-        self.temperature = max(0.01, min(100, self.temperature))
-
-    def print_validation_results(self, num_valid, num_rejected, num_evaluated):
-        """Prints the results of hypothesis validation."""
-        print(f"Validated hypotheses. Active: {len(self.hypotheses)}, Rejected this round: {num_rejected}")
-        print(f"Total rejected hypotheses: {self.rejected_hypotheses_count}")
-        print(f"Hypotheses checked this round: {num_evaluated}")
-        print(f"Moving average hypotheses per round: {self.moving_average_hypotheses:.2f}")
-        print(f"Current temperature: {self.temperature:.2f}")
-        print(f"Top 5 hypotheses scores: {[h.score for h in self.optimal_hypotheses[:5]]}")
-
-    def update_hypotheses(self, observation, correct_label):
-        self.validate_hypotheses()
-        self.print_hypothesis_stats()
-
-    def _add_variable_constraints(self, binary_str, var_func):
-        """Helper method to generate variable constraints from binary string."""
-        clauses = []
-        for i, bit in enumerate(binary_str):
-            var = var_func(i)
-            clauses.append([var] if bit == '1' else [-var])
-        return clauses
-
-    def _get_input_constraints(self, input_binary):
-        """Generate input constraints from binary input string."""
-        return self._add_variable_constraints(
-            input_binary,
-            lambda i: self._var_input_bit(i // self.input_bits, i % self.input_bits)
-        )
-
-    def _get_output_constraints(self, output_binary):
-        """Generate output constraints from binary output string."""
-        return self._add_variable_constraints(
-            output_binary,
-            self._var_output_bit
-        )
-
-    def predict_basic(self, observation: str) -> int:
-        logger.debug(f"Predicting for observation: {observation}")
-        if self.cnf is None:
-            logger.error("self.cnf is None in predict_basic")
-            self.cnf = CNF()
-            self.initialize_general_constraints()
-
-        if observation in self.cache:
-            print(f"Cache hit for observation: {observation}")
-            return self.cache[observation]
-
-        input_binary = self._input_to_binary(observation)
-        input_clauses = self._get_input_constraints(input_binary)
-
-        # Include the observation history and problem constraints
-        base_cnf = CNF()
-        base_cnf.extend(self.cnf.clauses)
-        base_cnf.extend(input_clauses)
-
-        # Group hypotheses by score
-        score_groups = defaultdict(list)
-        for hypothesis in self.hypotheses:
-            if hypothesis.is_active:
-                score_groups[hypothesis.score].append(hypothesis)
-
-        # Print out the set of possible hypotheses
-        print("Set of possible hypotheses for prediction:")
-        count = 0
-        for score, hypotheses in sorted(score_groups.items(), reverse=True):
-            print(f"Score {score:.4f}: {len(hypotheses)} hypotheses")
-            for h in hypotheses[:5]:  # Print details of up to 5 hypotheses per score group
-                print(f"  {h}")
-            if len(hypotheses) > 5:
-                print(f"  ... and {len(hypotheses) - 5} more")
-            if count > 10:
-                break
-            count += 1
-
-        # Select the group with the highest score
-        if score_groups:
-            max_score = max(score_groups.keys())
-            best_hypotheses = score_groups[max_score]
-
-            print(f"\nSelecting from {len(best_hypotheses)} hypotheses with highest score {max_score:.4f}")
-
-            # Randomly select a hypothesis from the best group
-            selected_hypothesis = random.choice(best_hypotheses)
-
-            print(f"Selected hypothesis: {selected_hypothesis}")
-
-            # Create a CNF for the selected hypothesis
-            prediction_cnf = CNF()
-            prediction_cnf.extend(base_cnf.clauses)
-            prediction_cnf.extend(selected_hypothesis.clauses)
-
-            with Solver(bootstrap_with=prediction_cnf.clauses) as solver:
-                is_satisfiable = solver.solve()
-                if is_satisfiable:
-                    model = solver.get_model()
-                    output_bits = ''.join(['1' if self._var_output_bit(b) in model else '0' for b in range(self.num_outputs)])
-                    result = self._binary_to_output(output_bits)
-                    print(f"Hypothesis with score {selected_hypothesis.score:.4f} predicts output: {result}")
-                    # Store the result in the cache before returning
-                    self.cache[observation] = result
-                    return result
-
-        # If no hypothesis provides a solution, handle accordingly
-        print("Error: No hypotheses provide a valid prediction.")
-        # Optionally, generate new hypotheses or return a default prediction
-        default_output = random.randint(0, self.num_outputs - 1)
-        self.cache[observation] = default_output
-        return default_output
-
-    def update_history(self, observation: str, guess: int, correct_label: int):
-        logger.debug(f"Updating history: observation={observation}, guess={guess}, correct_label={correct_label}")
-        if self.cnf is None:
-            logger.error("self.cnf is None in update_history")
-            self.cnf = CNF()
-            self.initialize_general_constraints()
-
-        super().update_history(observation, guess, correct_label)
-        self.cache[observation] = correct_label
-
-        input_binary = self._input_to_binary(observation)
-        self.observations.append((input_binary, correct_label))
-
-        # Get input and output constraints
-        input_vars = self._get_input_constraints(input_binary)
-        output_binary = self._output_to_binary(correct_label)
-        output_vars = self._get_output_constraints(output_binary)
-
-        # Flatten the constraints for the CNF
-        input_literals = [clause[0] for clause in input_vars]  # Each clause has one literal
-        output_literals = [clause[0] for clause in output_vars]  # Each clause has one literal
-
-        # Add the implication constraint
-        self.cnf.append([-v for v in input_literals] + output_literals)
-
-        print(f"New observation: input={input_binary}, output={correct_label}")
-        print(f"Total observations: {len(self.observations)}")
-        print(f"Cache size: {len(self.cache)}")
-        print(f"Total clauses: {len(self.cnf.clauses)}")
-
-        self.round_count += 1
-        self.update_hypotheses(observation, correct_label)
-
-        if self.round_count % 100 == 0:
-            print("Performing clause reduction...")
-            self.cnf = self.remove_subsumed_clauses(self.cnf)
-            print("Clause reduction complete.")
-            print(f"Total clauses: {len(self.cnf.clauses)}")
-        else:
-            print("Skipping clause reduction this round.")
-
-    def print_hypothesis_stats(self):
-        if not self.hypotheses:
+    def print_stats(self, hypotheses):
+        if not hypotheses:
             print("No active hypotheses.")
             return
 
-        ages = [self.round_count - h.last_evaluated for h in self.hypotheses]
-        scores = [h.score for h in self.hypotheses]
+        ages = [self.round_count - h.last_evaluated for h in hypotheses]
+        scores = [h.score for h in hypotheses]
 
+        self._print_basic_stats(hypotheses, ages, scores)
+        self._print_age_distribution(ages)
+        self._print_score_distribution(scores)
+        self._print_top_hypotheses(hypotheses)
+        print("\n" + "="*50)
+
+    def _print_basic_stats(self, hypotheses, ages, scores):
         print("\nHypothesis Statistics:")
-        print(f"Total active hypotheses: {len(self.hypotheses)}")
+        print(f"Total active hypotheses: {len(hypotheses)}")
         print(f"Total rejected hypotheses: {self.rejected_hypotheses_count}")
         print(f"Age range: {min(ages)} - {max(ages)} rounds")
         print(f"Age mean: {sum(ages) / len(ages):.2f} rounds")
@@ -502,8 +258,8 @@ class SATHypothesesAlgorithm(Algorithm):
         print(f"Score range: {min(scores):.4f} - {max(scores):.4f}")
         print(f"Score mean: {sum(scores) / len(scores):.4f}")
         print(f"Score median: {sorted(scores)[len(scores)//2]:.4f}")
-        
-        # Calculate age distribution
+
+    def _print_age_distribution(self, ages):
         age_distribution = {}
         for age in ages:
             age_distribution[age] = age_distribution.get(age, 0) + 1
@@ -511,8 +267,8 @@ class SATHypothesesAlgorithm(Algorithm):
         print("\nAge Distribution (top 10):")
         for age, count in sorted(age_distribution.items(), key=lambda x: x[1], reverse=True)[:10]:
             print(f"Age {age}: {count} hypotheses")
-        
-        # Calculate score distribution
+
+    def _print_score_distribution(self, scores):
         score_distribution = {}
         for score in scores:
             score_distribution[score] = score_distribution.get(score, 0) + 1
@@ -521,71 +277,178 @@ class SATHypothesesAlgorithm(Algorithm):
         for score, count in sorted(score_distribution.items(), key=lambda x: x[1], reverse=True)[:10]:
             print(f"Score {score:.4f}: {count} hypotheses")
 
+    def _print_top_hypotheses(self, hypotheses):
         print("\nTop 5 Hypotheses:")
-        for i, h in enumerate(sorted(self.hypotheses, key=lambda x: x.score, reverse=True)[:5], 1):
-            print(f"{i}. Score: {h.score:.4f}, Age: {self.round_count - h.last_evaluated}, Complexity: {h.complexity}, Clauses: {h.clauses}")
+        for i, h in enumerate(sorted(hypotheses, key=lambda x: x.score, reverse=True)[:5], 1):
+            print(f"{i}. Score: {h.score:.4f}, Age: {self.round_count - h.last_evaluated}, "
+                  f"Complexity: {h.complexity}, Clauses: {h.clauses}")
 
-        print("\n" + "="*50)
+class PredictionManager:
+    def __init__(self, num_outputs, cnf_manager):
+        self.num_outputs = num_outputs
+        self.cnf_manager = cnf_manager
+        self.cache = {}
 
-    def predict_with_cache(self, observation: str) -> int:
-        return self.predict_basic(observation)
+    def predict(self, observation, input_binary, hypotheses):
+        if observation in self.cache:
+            print(f"Cache hit for observation: {observation}")
+            return self.cache[observation]
+
+        input_clauses = self.cnf_manager.get_input_constraints(input_binary)
+        score_groups = self._group_hypotheses_by_score(hypotheses)
+        
+        self._print_hypothesis_groups(score_groups)
+
+        if not score_groups:
+            return self._handle_no_hypotheses(observation)
+
+        selected_hypothesis = self._select_best_hypothesis(score_groups)
+        result = self._make_prediction(selected_hypothesis, input_clauses, observation)
+        return result
+
+    def _group_hypotheses_by_score(self, hypotheses):
+        score_groups = defaultdict(list)
+        for hypothesis in hypotheses:
+            if hypothesis.is_active:
+                score_groups[hypothesis.score].append(hypothesis)
+        return score_groups
+
+    def _print_hypothesis_groups(self, score_groups):
+        print("Set of possible hypotheses for prediction:")
+        count = 0
+        for score, hypotheses in sorted(score_groups.items(), reverse=True):
+            print(f"Score {score:.4f}: {len(hypotheses)} hypotheses")
+            for h in hypotheses[:5]:
+                print(f"  {h}")
+            if len(hypotheses) > 5:
+                print(f"  ... and {len(hypotheses) - 5} more")
+            if count > 10:
+                break
+            count += 1
+
+    def _handle_no_hypotheses(self, observation):
+        default_output = random.randint(0, self.num_outputs - 1)
+        self.cache[observation] = default_output
+        return default_output
+
+    def _select_best_hypothesis(self, score_groups):
+        max_score = max(score_groups.keys())
+        best_hypotheses = score_groups[max_score]
+        print(f"\nSelecting from {len(best_hypotheses)} hypotheses with highest score {max_score:.4f}")
+        selected_hypothesis = random.choice(best_hypotheses)
+        print(f"Selected hypothesis: {selected_hypothesis}")
+        return selected_hypothesis
+
+    def _make_prediction(self, hypothesis, input_clauses, observation):
+        prediction_cnf = CNF()
+        prediction_cnf.extend(self.cnf_manager.cnf.clauses)
+        prediction_cnf.extend(input_clauses)
+        prediction_cnf.extend(hypothesis.clauses)
+
+        with Solver(bootstrap_with=prediction_cnf.clauses) as solver:
+            if solver.solve():
+                model = solver.get_model()
+                output_bits = ''.join(
+                    ['1' if self.cnf_manager._var_output_bit(b) in model else '0' 
+                     for b in range(self.num_outputs)]
+                )
+                result = output_bits.index('1')
+                print(f"Hypothesis with score {hypothesis.score:.4f} predicts output: {result}")
+                self.cache[observation] = result
+                return result
+
+        return self._handle_no_hypotheses(observation)
+
+class SATHypothesesAlgorithm(Algorithm):
+    def __init__(self, num_inputs=9, input_bits=3, num_outputs=5):
+        super().__init__()
+        self.num_inputs = num_inputs
+        self.input_bits = input_bits
+        self.num_outputs = num_outputs
+        self.observations = []
+        
+        # Initialize managers and helpers
+        self.cnf_manager = CNFManager(num_inputs, input_bits, num_outputs)
+        self.generator = HypothesisGenerator(num_inputs, input_bits, num_outputs)
+        self.validator = HypothesisValidator()
+        self.scorer = HypothesisScorer()
+        self.binary_converter = BinaryConverter(num_outputs)
+        self.stats = HypothesisStats()
+        self.prediction_manager = PredictionManager(num_outputs, self.cnf_manager)
+        
+        # State management
+        self.hypotheses = []
+        self.rejected_hypotheses = []
+        self.optimal_hypotheses = []
+        
+        logger.debug("Initializing SATAlgorithm")
+
+    def validate_hypotheses(self):
+        all_hypotheses = self.hypotheses + self.generator.generate_hypotheses()
+        valid_hypotheses, rejected_hypotheses = self.validator.validate_hypotheses(
+            all_hypotheses, 
+            self.cnf_manager.cnf
+        )
+        
+        for hypothesis in valid_hypotheses:
+            simplified_cnf = self.cnf_manager.remove_subsumed_clauses()
+            self.scorer.compute_scores(hypothesis, simplified_cnf)
+            hypothesis.last_evaluated = self.stats.round_count
+        
+        self.update_hypothesis_lists(valid_hypotheses, rejected_hypotheses)
+        self.validator.update_moving_average(len(valid_hypotheses))
+        self.validator.auto_tune_temperature()
+        self.print_validation_results(len(valid_hypotheses), len(rejected_hypotheses))
+
+    def update_hypothesis_lists(self, valid_hypotheses, rejected_hypotheses):
+        self.hypotheses = [h for h in self.hypotheses if h.is_active] + valid_hypotheses
+        self.rejected_hypotheses.extend(rejected_hypotheses)
+        self.stats.rejected_hypotheses_count += len(rejected_hypotheses)
+        self.optimal_hypotheses = sorted(valid_hypotheses, key=lambda h: h.score, reverse=True)[:10]
+
+    def print_validation_results(self, num_valid, num_rejected):
+        print(f"Validated hypotheses. Active: {len(self.hypotheses)}, Rejected this round: {num_rejected}")
+        print(f"Total rejected hypotheses: {self.stats.rejected_hypotheses_count}")
+        print(f"Hypotheses checked this round: {num_valid}")
+        print(f"Moving average hypotheses per round: {self.validator.moving_average_hypotheses:.2f}")
+        print(f"Current temperature: {self.validator.temperature:.2f}")
+        print(f"Top 5 hypotheses scores: {[h.score for h in self.optimal_hypotheses[:5]]}")
 
     def predict(self, observation: str) -> int:
-        return self.predict_basic(observation)
+        logger.debug(f"Predicting for observation: {observation}")
+        input_binary = self.binary_converter.input_to_binary(observation)
+        return self.prediction_manager.predict(observation, input_binary, self.hypotheses)
 
-    def update_hypotheses_probabilities(self, observation, correct_label):
-        evidence_prob = 0.0
-        
-        # Update posterior probabilities using Bayes' theorem
-        for hypothesis in self.hypotheses:
-            if not hypothesis.is_active:
-                continue
-            
-            likelihood = self.compute_likelihood(hypothesis, observation, correct_label)
-            hypothesis.posterior_prob = hypothesis.prior_prob * likelihood
-            evidence_prob += hypothesis.posterior_prob
-        
-        # Normalize and update priors
-        if evidence_prob > 0:
-            for hypothesis in self.hypotheses:
-                if hypothesis.is_active:
-                    hypothesis.posterior_prob /= evidence_prob
-                    hypothesis.prior_prob = hypothesis.posterior_prob
+    def update_history(self, observation: str, guess: int, correct_label: int):
+        logger.debug(f"Updating history: observation={observation}, guess={guess}, correct_label={correct_label}")
+        super().update_history(observation, guess, correct_label)
+        self.prediction_manager.cache[observation] = correct_label
 
-    def compute_likelihood(self, hypothesis, observation, correct_label):
-        temp_cnf = CNF()
-        temp_cnf.extend(self.cnf.clauses)
-        temp_cnf.extend(hypothesis.clauses)
-        
-        # Add observation constraints
-        input_binary = self._input_to_binary(observation)
-        output_binary = self._output_to_binary(correct_label)
-        
-        for i, bit in enumerate(input_binary):
-            var = self._var_input_bit(i // self.input_bits, i % self.input_bits)
-            temp_cnf.append([var] if bit == '1' else [-var])
-        
-        for b, bit in enumerate(output_binary):
-            var = self._var_output_bit(b)
-            temp_cnf.append([var] if bit == '1' else [-var])
-        
-        with Solver(bootstrap_with=temp_cnf.clauses) as solver:
-            return 1.0 if solver.solve() else 0.0
+        input_binary = self.binary_converter.input_to_binary(observation)
+        self.observations.append((input_binary, correct_label))
 
-    def compute_bayesian_surprise(self):
-        active_hypotheses = [h for h in self.hypotheses if h.is_active]
-        if not active_hypotheses:
-            return 0.0
-            
-        prior_probs = np.array([h.prior_prob for h in active_hypotheses])
-        posterior_probs = np.array([h.posterior_prob for h in active_hypotheses])
-        
-        # Compute KL divergence with numerical stability
-        kl_divergence = np.sum(
-            posterior_probs * (
-                np.log(posterior_probs + 1e-12) - 
-                np.log(prior_probs + 1e-12)
-            )
-        )
-        return kl_divergence
+        input_vars = self.cnf_manager.get_input_constraints(input_binary)
+        output_binary = self.binary_converter.output_to_binary(correct_label)
+        output_vars = self.cnf_manager.get_output_constraints(output_binary)
+
+        input_literals = [clause[0] for clause in input_vars]
+        output_literals = [clause[0] for clause in output_vars]
+        self.cnf_manager.cnf.append([-v for v in input_literals] + output_literals)
+
+        print(f"New observation: input={input_binary}, output={correct_label}")
+        print(f"Total observations: {len(self.observations)}")
+        print(f"Cache size: {len(self.prediction_manager.cache)}")
+        print(f"Total clauses: {len(self.cnf_manager.cnf.clauses)}")
+
+        self.stats.round_count += 1
+        self.validate_hypotheses()
+        self.stats.print_stats(self.hypotheses)
+
+        if self.stats.round_count % 100 == 0:
+            print("Performing clause reduction...")
+            self.cnf_manager.remove_subsumed_clauses()
+            print("Clause reduction complete.")
+            print(f"Total clauses: {len(self.cnf_manager.cnf.clauses)}")
+        else:
+            print("Skipping clause reduction this round.")
 
