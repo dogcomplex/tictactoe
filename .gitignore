@@ -2,3 +2,130 @@ few_shot_algs/__pycache__
 __pycache__
 results/
 mvp_runs/
+all_hypotheses.pt
+
+# Byte-compiled / optimized / DLL files
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static analysis results
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# OS generated files #
+######################
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE settings #
+######################
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.komodoproject
+
+# Temporary files
+*.swp
+*~
+*.bak
+
+# Credentials / Secrets / Logs
+# Be careful not to accidentally commit sensitive files.
+*.log
+*.env
+credentials.*
+secrets.*
+*.pem
+*.key
+
+# NOTE: PyTorch Model Files (*.pt)
+# Not ignoring *.pt by default as `recipes.py` might use `all_hypotheses.pt`
+# as a pre-generated cache file intended for distribution or faster startup.
+# If you generate .pt files that should NOT be committed, add '*.pt' below.
+# *.pt
+
+# Large data files (add specific patterns if needed)
+# data/
+# *.csv
+# *.jsonl
