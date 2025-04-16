@@ -2,7 +2,6 @@ few_shot_algs/__pycache__
 __pycache__
 results/
 mvp_runs/
-all_hypotheses.pt
 
 # Byte-compiled / optimized / DLL files
 *.py[cod]
