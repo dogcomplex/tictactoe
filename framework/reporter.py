@@ -80,35 +80,51 @@ class Reporter:
         logger.info("Generating reports...") # Changed print to logger
 
         # --- JSON Report ---
-        # Convert TaskSpec and CandidateProgram dataclasses to dictionaries for JSON serialization
+        task_spec_dict = task_spec.__dict__.copy()
+        if 'labels' in task_spec_dict and isinstance(task_spec_dict['labels'], list):
+            task_spec_dict['labels'] = [str(label) for label in task_spec_dict['labels']]
+
+        # Calculate summary using an explicit loop for robustness with mocks
+        summary = {s.name: 0 for s in VerificationStatus}
+        for c in processed_candidates:
+            status_attr = getattr(c, 'verification_status', None)
+            # Compare names instead of enum members directly
+            if hasattr(status_attr, 'name') and isinstance(status_attr.name, str):
+                 for expected_status in VerificationStatus:
+                     if status_attr.name == expected_status.name:
+                         summary[expected_status.name] += 1
+                         break # Found the status, move to next candidate
+            # else: Optional: log warning about unexpected status type?
+
         report_data = {
-            "task_spec": task_spec.__dict__,
+            "task_spec": task_spec_dict,
+            # Use the provided string directly
             "run_timestamp": run_timestamp,
             "total_candidates_generated": len(processed_candidates),
-            "results_summary": {
-                status.name: sum(1 for c in processed_candidates if c.verification_status == status)
-                for status in VerificationStatus
-            },
-            # Convert candidates, handling potential non-serializable fields in provenance/representation
+            # Use the calculated summary dictionary
+            "results_summary": summary,
             "candidates": [self._serialize_candidate(c) for c in processed_candidates]
         }
-        json_filename = os.path.join(self.output_dir, f"report_{task_spec.task_id}_{run_timestamp}.json")
+        # Use the provided string directly in the filename
+        # Sanitize the timestamp string for use in filenames
+        safe_timestamp = run_timestamp.replace(':', '-').replace('.', '_') # Replace common invalid chars
+        json_filename = os.path.join(self.output_dir, f"report_{task_spec.task_id}_{safe_timestamp}.json")
         try:
             with open(json_filename, 'w') as f:
-                json.dump(report_data, f, indent=2) # Removed default=str, handle in _serialize_candidate
-            logger.info(f"JSON report saved to: {json_filename}") # Changed print to logger
+                json.dump(report_data, f, indent=2)
+            logger.info(f"JSON report saved to: {json_filename}")
         except Exception as e:
-            logger.error(f"Error saving JSON report: {e}", exc_info=True) # Changed print to logger, added exc_info
+            logger.error(f"Error saving JSON report: {e}", exc_info=True)
 
         # --- Line-Limited Head Report ---
-        head_report_filename = os.path.join(self.output_dir, f"report_head_{task_spec.task_id}_{run_timestamp}.json")
+        # Use the provided string directly in the filename
+        head_report_filename = os.path.join(self.output_dir, f"report_head_{task_spec.task_id}_{safe_timestamp}.json")
         max_lines = 500
         try:
             full_report_string = json.dumps(report_data, indent=2)
             lines = full_report_string.splitlines()
             head_lines = lines[:max_lines]
             head_report_string = "\n".join(head_lines)
-            # Add indication if truncated
             if len(lines) > max_lines:
                 head_report_string += "\n... (Report truncated due to line limit)"
 
@@ -119,10 +135,10 @@ class Reporter:
              logger.error(f"Error saving head JSON report: {e}", exc_info=True)
 
         # --- Console Log Summary ---
-        # Use logger instead of print for console output consistency
         logger.info("\n--- Run Summary ---")
         logger.info(f"Task ID: {task_spec.task_id}")
-        logger.info(f"Timestamp: {run_timestamp}")
+        # Use the provided string directly
+        logger.info(f"Timestamp: {run_timestamp}") 
         logger.info(f"Total Candidates Generated: {len(processed_candidates)}")
         logger.info("Verification Summary:")
         for status, count in report_data["results_summary"].items():
@@ -154,13 +170,236 @@ class Reporter:
 
     def _serialize_candidate(self, candidate: CandidateProgram) -> Dict[str, Any]:
         """Helper to convert a CandidateProgram to a JSON-serializable dictionary."""
-        candidate_dict = candidate.__dict__.copy()
-        # Convert Enum to its value (string name)
-        candidate_dict['verification_status'] = candidate.verification_status.name
-        # Ensure complex representations or provenance details are handled
-        # For now, just convert known problematic types to string as a fallback
-        for key, value in candidate_dict.items():
-            if isinstance(value, (torch.Tensor)): # Example: Handle tensors
-                candidate_dict[key] = "<Tensor Data>" # Or convert to list if appropriate
-            # Add other type checks as needed
+        # Explicitly define the fields we want to serialize
+        serializable_fields = [
+            'program_representation',
+            'representation_type',
+            'source_strategy',
+            'confidence',
+            'verification_status',
+            'provenance',
+            'verification_results'
+        ]
+        candidate_dict = {}
+
+        for field in serializable_fields:
+            try:
+                value = getattr(candidate, field, None) # Use getattr to handle potential mocks
+            except Exception:
+                 value = f"<Error accessing field: {field}>"
+
+            # Convert specific types
+            if isinstance(value, VerificationStatus):
+                candidate_dict[field] = value.name
+            elif isinstance(value, torch.Tensor):
+                # Decide: convert to list or use placeholder?
+                # Using placeholder for now to avoid large lists in report
+                candidate_dict[field] = "<Tensor Data>"
+            elif isinstance(value, (dict, list, str, int, float, bool)) or value is None:
+                # Already JSON serializable (or None)
+                candidate_dict[field] = value
+            else:
+                # Fallback for other potentially non-serializable types
+                candidate_dict[field] = f"<Unserializable: {type(value).__name__}>"
+
+# framework/reporter.py
+import json
+import os
+from typing import List, Dict, Any
+import time
+import logging # Added logging
+import torch # Import torch to handle tensor serialization
+
+# Add project root to allow framework imports if needed for internal calls (though less likely here)
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+# sys.path.insert(0, project_root) # Usually not needed inside package files
+
+# Need to import from siblings within the same package
+try:
+    from .data_structures import TaskSpec, CandidateProgram, VerificationStatus
+    from .verifier import Verifier # Import the Verifier class
+except ImportError:
+    # Handle case where script might be run directly for testing (less common)
+    from data_structures import TaskSpec, CandidateProgram, VerificationStatus
+    from verifier import Verifier
+
+logger = logging.getLogger(__name__) # Added logger
+
+class ResultAggregator:
+    """Runs verification on candidates and prepares results."""
+
+    def __init__(self, verifier: Verifier):
+        self.verifier = verifier
+        logger.info("Initialized ResultAggregator.") # Changed print to logger
+
+    def process_results(self, task_spec: TaskSpec, candidates: List[CandidateProgram]) -> List[CandidateProgram]:
+        """
+        Verifies a list of candidate programs against the task specification.
+
+        Args:
+            task_spec: The task specification.
+            candidates: The list of CandidatePrograms generated by strategies.
+
+        Returns:
+            The list of CandidatePrograms with updated verification status and results.
+        """
+        logger.info(f"Aggregating and verifying {len(candidates)} candidates for task '{task_spec.task_id}'...") # Changed print to logger
+        verified_candidates = []
+        for i, candidate in enumerate(candidates):
+            # Reduced verbosity, log only if verifying
+            # logger.debug(f"  Processing candidate {i+1}/{len(candidates)} from {candidate.source_strategy}...")
+            if candidate.verification_status == VerificationStatus.NOT_VERIFIED:
+                 # Only verify if not already verified (e.g., by the strategy itself)
+                logger.debug(f"  Verifying candidate {i+1} ({candidate.source_strategy})...")
+                verification_result = self.verifier.verify(candidate, task_spec)
+                candidate.verification_status = verification_result.overall_status
+                candidate.verification_results = verification_result.details # Store detailed results
+            else:
+                logger.debug(f"  Skipping verification for candidate {i+1}, status already set to: {candidate.verification_status.name}")
+            verified_candidates.append(candidate)
+
+        logger.info("Finished processing results.") # Changed print to logger
+        return verified_candidates
+
+class Reporter:
+    """Handles reporting of final results."""
+
+    def __init__(self, output_dir="results"):
+        self.output_dir = output_dir
+        # Create directory within the constructor for robustness
+        os.makedirs(self.output_dir, exist_ok=True)
+        logger.info(f"Initialized Reporter. Output directory: {self.output_dir}") # Changed print to logger
+
+    def generate_report(self, task_spec: TaskSpec, processed_candidates: List[CandidateProgram], run_timestamp: str):
+        """
+        Generates JSON and console reports for the processed candidates.
+
+        Args:
+            task_spec: The original task specification.
+            processed_candidates: List of candidates after verification.
+            run_timestamp: Timestamp string for unique filenames.
+        """
+        logger.info("Generating reports...") # Changed print to logger
+
+        # --- JSON Report ---
+        task_spec_dict = task_spec.__dict__.copy()
+        if 'labels' in task_spec_dict and isinstance(task_spec_dict['labels'], list):
+            task_spec_dict['labels'] = [str(label) for label in task_spec_dict['labels']]
+
+        # Calculate summary using an explicit loop for robustness with mocks
+        summary = {s.name: 0 for s in VerificationStatus}
+        for c in processed_candidates:
+            status_attr = getattr(c, 'verification_status', None)
+            if isinstance(status_attr, VerificationStatus):
+                summary[status_attr.name] += 1
+            # else: Optional: log warning about unexpected status type?
+
+        report_data = {
+            "task_spec": task_spec_dict,
+            # Use the provided string directly
+            "run_timestamp": run_timestamp,
+            "total_candidates_generated": len(processed_candidates),
+            # Use the calculated summary dictionary
+            "results_summary": summary,
+            "candidates": [self._serialize_candidate(c) for c in processed_candidates]
+        }
+        # Use the provided string directly in the filename
+        # Sanitize the timestamp string for use in filenames
+        safe_timestamp = run_timestamp.replace(':', '-').replace('.', '_') # Replace common invalid chars
+        json_filename = os.path.join(self.output_dir, f"report_{task_spec.task_id}_{safe_timestamp}.json")
+        try:
+            with open(json_filename, 'w') as f:
+                json.dump(report_data, f, indent=2)
+            logger.info(f"JSON report saved to: {json_filename}")
+        except Exception as e:
+            logger.error(f"Error saving JSON report: {e}", exc_info=True)
+
+        # --- Line-Limited Head Report ---
+        # Use the provided string directly in the filename
+        head_report_filename = os.path.join(self.output_dir, f"report_head_{task_spec.task_id}_{safe_timestamp}.json")
+        max_lines = 500
+        try:
+            full_report_string = json.dumps(report_data, indent=2)
+            lines = full_report_string.splitlines()
+            head_lines = lines[:max_lines]
+            head_report_string = "\n".join(head_lines)
+            if len(lines) > max_lines:
+                head_report_string += "\n... (Report truncated due to line limit)"
+
+            with open(head_report_filename, 'w') as f:
+                f.write(head_report_string)
+            logger.info(f"Head report (first {max_lines} lines) saved to: {head_report_filename}")
+        except Exception as e:
+             logger.error(f"Error saving head JSON report: {e}", exc_info=True)
+
+        # --- Console Log Summary ---
+        logger.info("\n--- Run Summary ---")
+        logger.info(f"Task ID: {task_spec.task_id}")
+        # Use the provided string directly
+        logger.info(f"Timestamp: {run_timestamp}") 
+        logger.info(f"Total Candidates Generated: {len(processed_candidates)}")
+        logger.info("Verification Summary:")
+        for status, count in report_data["results_summary"].items():
+            logger.info(f"  - {status}: {count}")
+
+        logger.info("\nTop Consistent Candidates (if any):")
+        consistent_candidates = [c for c in processed_candidates if c.verification_status == VerificationStatus.CONSISTENT]
+        # Sort by confidence if available, otherwise keep original order for MVP
+        consistent_candidates.sort(key=lambda c: c.confidence if c.confidence is not None else -1.0, reverse=True)
+
+        limit = 5
+        if not consistent_candidates:
+            logger.info("  No consistent candidates found.")
+        else:
+            for i, candidate in enumerate(consistent_candidates[:limit]):
+                 confidence_str = f"{candidate.confidence:.2f}" if candidate.confidence is not None else "N/A"
+                 logger.info(f"  #{i+1} Candidate (Source: {candidate.source_strategy}, Confidence: {confidence_str})")
+                 # Try to display representation concisely
+                 rep_str = str(candidate.program_representation)
+                 if len(rep_str) > 100:
+                     rep_str = rep_str[:100] + "..."
+                 logger.info(f"    Representation ({candidate.representation_type}): {rep_str}")
+                 # Display provenance concisely if it exists
+                 prov_str = str(candidate.provenance)
+                 if len(prov_str) > 100:
+                      prov_str = prov_str[:100] + "..."
+                 logger.info(f"    Provenance: {prov_str}")
+        logger.info("--- End Summary ---\n")
+
+    def _serialize_candidate(self, candidate: CandidateProgram) -> Dict[str, Any]:
+        """Helper to convert a CandidateProgram to a JSON-serializable dictionary."""
+        # Explicitly define the fields we want to serialize
+        serializable_fields = [
+            'program_representation',
+            'representation_type',
+            'source_strategy',
+            'confidence',
+            'verification_status',
+            'provenance',
+            'verification_results'
+        ]
+        candidate_dict = {}
+
+        for field in serializable_fields:
+            try:
+                value = getattr(candidate, field, None) # Use getattr to handle potential mocks
+            except Exception:
+                 value = f"<Error accessing field: {field}>"
+
+            # Convert specific types
+            if isinstance(value, VerificationStatus):
+                candidate_dict[field] = value.name
+            elif isinstance(value, torch.Tensor):
+                # Decide: convert to list or use placeholder?
+                # Using placeholder for now to avoid large lists in report
+                candidate_dict[field] = "<Tensor Data>"
+            elif isinstance(value, (dict, list, str, int, float, bool)) or value is None:
+                # Already JSON serializable (or None)
+                candidate_dict[field] = value
+            else:
+                # Fallback for other potentially non-serializable types
+                candidate_dict[field] = f"<Unserializable: {type(value).__name__}>"
+
         return candidate_dict 

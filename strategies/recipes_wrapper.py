@@ -250,36 +250,35 @@ class RecipesStrategyWrapper(Strategy):
 
 
                 candidate = CandidateProgram(
-                    program_representation=representation, # Store list[bool]
-                    representation_type='TensorRule',
+                    program_representation=representation,
+                    representation_type="TensorRule", # Indicate it's a tensor from recipes
                     source_strategy=self.strategy_id,
-                    # Confidence/Score: HypothesisManager doesn't seem to score directly, maybe use index or default?
-                    confidence=None, # Or perhaps 1.0 since they are 'valid'?
-                    verification_status=VerificationStatus.CONSISTENT, # Strategy claims consistency based on its filtering
+                    confidence=None, # recipes.py doesn't seem to have explicit confidence
+                    verification_status=VerificationStatus.NOT_VERIFIED,
                     provenance={
-                        # 'index_in_manager': valid_hypotheses_indices[i].item() if torch.is_tensor(valid_hypotheses_indices[i]) else valid_hypotheses_indices[i],
-                        # 'rank_in_retrieved_list': i, # Use rank as a proxy for index
-                        'internal_index_or_rank': internal_index,
-                        'readable_representation': readable_rep
-                        # Add other details if manager provides stats per hypothesis later
-                    },
-                    # We mark as consistent, verifier can double-check if needed or focus on other strategies
-                     verification_results=None
+                        'internal_index': internal_index, # Keep track of original index if available
+                        'readable_form': readable_rep,
+                        # Add stats if they were returned by get_top_hypotheses
+                        'stats': hypothesis_data[2] if isinstance(hypothesis_data, tuple) and len(hypothesis_data) > 2 else None
+                    }
                 )
                 candidate_programs.append(candidate)
             except Exception as e:
-                 logger.error(f"Error converting internal tensor hypothesis {i} to CandidateProgram: {e}", exc_info=True)
+                logger.error(f"Error converting hypothesis {i} to CandidateProgram: {e}", exc_info=True)
 
-        total_time = time.time() - start_time
-        logger.info(f"Generated {len(candidate_programs)} CandidateProgram objects from {self.strategy_id} in {total_time:.2f}s.")
+        duration = time.time() - start_time
+        logger.info(f"{self.strategy_id} finished in {duration:.2f}s. Generated {len(candidate_programs)} candidates.")
         return candidate_programs
 
     def teardown(self):
-        """Clean up resources."""
+        """Clean up resources, if any."""
         super().teardown()
-        # Release GPU memory if possible
-        del self.internal_manager
-        self.internal_manager = None
-        if self.device == torch.device('cuda'):
-            torch.cuda.empty_cache()
+        # Check if internal_manager exists and has a teardown method
+        if hasattr(self.internal_manager, 'teardown') and callable(getattr(self.internal_manager, 'teardown')):
+            try:
+                logger.info(f"Calling teardown on internal {type(self.internal_manager).__name__}...")
+                self.internal_manager.teardown()
+            except Exception as e:
+                logger.error(f"Error during internal manager teardown: {e}", exc_info=True)
+        self.internal_manager = None # Release instance
         logger.info(f"{self.strategy_id} torn down.") 

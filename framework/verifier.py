@@ -158,48 +158,53 @@ class Verifier:
                         input_binary = self._ttt_input_to_binary(board_state, num_inputs, bits_per_input)
                         input_assumptions = self._get_input_assumptions(input_binary, num_inputs, bits_per_input)
 
-                        # 3. Check which outputs are *possible* given the rule + input
+                        # 3. Check if the rule ENTAILS the expected output
                         from pysat.solvers import Solver # Import here for clarity
-                        possible_outputs = [] # Store indices of outputs deemed possible by the rule
-                        for potential_output_idx in range(num_outputs):
-                            output_var = self._get_output_var(potential_output_idx, num_inputs, bits_per_input)
-                            # Check if Input + Rule + Output is SATISFIABLE
-                            assumption_for_check = input_assumptions + [output_var]
-                            with Solver(bootstrap_with=cnf_clauses, use_timer=True) as solver:
-                                is_sat = solver.solve(assumptions=assumption_for_check)
-                                # print(f"      Input: {board_state}, Assume Output: {self.label_space[potential_output_idx]}({output_var}), SAT: {is_sat}")
-                                if is_sat:
-                                    # If assuming the output is SAT, then this output is possible under the rule
-                                    possible_outputs.append(potential_output_idx)
+                        status_detail = "" # For logging/reporting
+                        is_correct_for_example_cnf = False # Default to false
+                        predicted_label_idx = -9 # Default error/unknown code
 
-                        # 4. Determine if the EXPECTED output was possible
-                        # is_correct_for_example = (expected_label_idx in possible_outputs) # Old logic based only on possibility
+                        expected_output_var = self._get_output_var(expected_label_idx, num_inputs, bits_per_input)
 
-                        # -- Start New Logic for CNF correctness --
-                        # Correct only if the expected output is uniquely possible
-                        if len(possible_outputs) == 1 and possible_outputs[0] == expected_label_idx:
-                             is_correct_for_example_cnf = True
-                             predicted_label_idx = expected_label_idx # Unique prediction matches expected
+                        # Check 1: Does the rule FORCE the expected output?
+                        # Test if (Rule + Input + NOT ExpectedOutput) is UNSAT
+                        with Solver(bootstrap_with=cnf_clauses, use_timer=True) as solver_force_check:
+                            is_unsat = not solver_force_check.solve(assumptions=input_assumptions + [-expected_output_var])
+
+                        if is_unsat:
+                            # If UNSAT, the rule + input forces the expected output. This is CONSISTENT.
+                            is_correct_for_example_cnf = True
+                            predicted_label_idx = expected_label_idx
+                            status_detail = "(Consistent: Rule forces expected output)"
                         else:
-                             is_correct_for_example_cnf = False
-                             # Determine prediction code based on ambiguity/impossibility
-                             if len(possible_outputs) == 0:
-                                 predicted_label_idx = -1 # Indicate rule contradicts *all* outputs
-                             elif expected_label_idx not in possible_outputs:
-                                 predicted_label_idx = -2 # Indicate rule contradicts the *specific* expected output
-                             else: # Expected is possible, but so are others
-                                 predicted_label_idx = -3 # Indicate ambiguity
-                        # -- End New Logic for CNF correctness --
+                            # Rule does not force the expected output. Now check if it contradicts it.
+                            is_correct_for_example_cnf = False
 
-                        # Store details for logging/reporting
-                        # predicted_label_idx = -4 # Use a distinct code for CNF possibility check -- OLD CODE
-                        if not possible_outputs:
-                             status_detail = " (Rule inconsistent with ALL outputs)"
-                        elif len(possible_outputs) == 1:
-                             # predicted_label_idx = possible_outputs[0] # Can infer prediction if only one possible -- Done above
-                             status_detail = ""
-                        else:
-                             status_detail = f" (Rule allows outputs: {[self.label_space[i] for i in possible_outputs]})"
+                            # Check 2: Is the rule even CONSISTENT with the expected output?
+                            # Test if (Rule + Input + ExpectedOutput) is SAT
+                            with Solver(bootstrap_with=cnf_clauses, use_timer=True) as solver_consistent_check:
+                                is_sat = solver_consistent_check.solve(assumptions=input_assumptions + [expected_output_var])
+
+                            if not is_sat:
+                                # If UNSAT, the rule contradicts the expected output.
+                                predicted_label_idx = -2 # Code for direct contradiction
+                                status_detail = "(Contradicted: Rule is inconsistent with expected output)"
+                                # We could try finding WHICH output it forces, but that's complex.
+                            else:
+                                # Rule allows the expected output, but doesn't force it (already checked).
+                                # This means it must allow other outputs too. AMBIGUOUS.
+                                predicted_label_idx = -3 # Code for ambiguity
+                                # Find which other outputs are possible
+                                possible_outputs = [expected_label_idx] # We know expected is possible
+                                for other_idx in range(num_outputs):
+                                    if other_idx == expected_label_idx: continue
+                                    other_var = self._get_output_var(other_idx, num_inputs, bits_per_input)
+                                    with Solver(bootstrap_with=cnf_clauses, use_timer=True) as solver_other_check:
+                                        if solver_other_check.solve(assumptions=input_assumptions + [other_var]):
+                                            possible_outputs.append(other_idx)
+
+                                status_detail = f"(Contradicted: Ambiguous - Rule allows outputs: {[self.label_space[i] for i in possible_outputs]})"
+
 
                     except Exception as e:
                         logger.error(f"Error during CNF verification for example {i}: {e}", exc_info=True)
